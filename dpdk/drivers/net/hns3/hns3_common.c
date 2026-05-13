@@ -85,7 +85,7 @@ hns3_dev_infos_get(struct rte_eth_dev *eth_dev, struct rte_eth_dev_info *info)
 				 RTE_ETH_TX_OFFLOAD_MBUF_FAST_FREE |
 				 RTE_ETH_TX_OFFLOAD_VLAN_INSERT);
 
-	if (!hns->is_vf && !hw->port_base_vlan_cfg.state)
+	if (!hw->port_base_vlan_cfg.state)
 		info->tx_offload_capa |= RTE_ETH_TX_OFFLOAD_QINQ_INSERT;
 
 	if (hns3_dev_get_support(hw, OUTER_UDP_CKSUM))
@@ -224,7 +224,7 @@ hns3_parse_dev_caps_mask(const char *key, const char *value, void *extra_args)
 static int
 hns3_parse_mbx_time_limit(const char *key, const char *value, void *extra_args)
 {
-	uint64_t val;
+	uint32_t val;
 
 	RTE_SET_USED(key);
 
@@ -308,7 +308,7 @@ hns3_parse_devargs(struct rte_eth_dev *dev)
 			   &hns3_parse_mbx_time_limit, &mbx_time_limit_ms);
 	if (!hns->is_vf)
 		(void)rte_kvargs_process(kvlist,
-					 HNS3_DEVARG_FDIR_VLAN_MATCH_MODE,
+					 HNS3_DEVARG_FDIR_VALN_MATCH_MODE,
 					 &hns3_parse_vlan_match_mode,
 					 &hns->pf.fdir.vlan_match_mode);
 
@@ -834,8 +834,8 @@ hns3_unmap_rx_interrupt(struct rte_eth_dev *dev)
 	struct rte_intr_handle *intr_handle = pci_dev->intr_handle;
 	struct hns3_adapter *hns = dev->data->dev_private;
 	struct hns3_hw *hw = &hns->hw;
-	uint16_t base = RTE_INTR_VEC_ZERO_OFFSET;
-	uint16_t vec = RTE_INTR_VEC_ZERO_OFFSET;
+	uint8_t base = RTE_INTR_VEC_ZERO_OFFSET;
+	uint8_t vec = RTE_INTR_VEC_ZERO_OFFSET;
 	uint16_t q_id;
 
 	if (dev->data->dev_conf.intr_conf.rxq == 0)

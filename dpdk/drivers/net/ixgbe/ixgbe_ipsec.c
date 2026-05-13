@@ -120,7 +120,7 @@ ixgbe_crypto_add_sa(struct ixgbe_crypto_session *ic_session)
 		/* Fail if no match and no free entries*/
 		if (ip_index < 0) {
 			PMD_DRV_LOG(ERR,
-				    "No free entry left in the Rx IP table");
+				    "No free entry left in the Rx IP table\n");
 			return -1;
 		}
 
@@ -134,7 +134,7 @@ ixgbe_crypto_add_sa(struct ixgbe_crypto_session *ic_session)
 		/* Fail if no free entries*/
 		if (sa_index < 0) {
 			PMD_DRV_LOG(ERR,
-				    "No free entry left in the Rx SA table");
+				    "No free entry left in the Rx SA table\n");
 			return -1;
 		}
 
@@ -232,7 +232,7 @@ ixgbe_crypto_add_sa(struct ixgbe_crypto_session *ic_session)
 		/* Fail if no free entries*/
 		if (sa_index < 0) {
 			PMD_DRV_LOG(ERR,
-				    "No free entry left in the Tx SA table");
+				    "No free entry left in the Tx SA table\n");
 			return -1;
 		}
 
@@ -291,7 +291,7 @@ ixgbe_crypto_remove_sa(struct rte_eth_dev *dev,
 		/* Fail if no match*/
 		if (ip_index < 0) {
 			PMD_DRV_LOG(ERR,
-				    "Entry not found in the Rx IP table");
+				    "Entry not found in the Rx IP table\n");
 			return -1;
 		}
 
@@ -306,7 +306,7 @@ ixgbe_crypto_remove_sa(struct rte_eth_dev *dev,
 		/* Fail if no match*/
 		if (sa_index < 0) {
 			PMD_DRV_LOG(ERR,
-				    "Entry not found in the Rx SA table");
+				    "Entry not found in the Rx SA table\n");
 			return -1;
 		}
 
@@ -349,7 +349,7 @@ ixgbe_crypto_remove_sa(struct rte_eth_dev *dev,
 		/* Fail if no match entries*/
 		if (sa_index < 0) {
 			PMD_DRV_LOG(ERR,
-				    "Entry not found in the Tx SA table");
+				    "Entry not found in the Tx SA table\n");
 			return -1;
 		}
 		reg_val = IPSRXIDX_WRITE | (sa_index << 3);
@@ -379,7 +379,7 @@ ixgbe_crypto_create_session(void *device,
 	if (conf->crypto_xform->type != RTE_CRYPTO_SYM_XFORM_AEAD ||
 			conf->crypto_xform->aead.algo !=
 					RTE_CRYPTO_AEAD_AES_GCM) {
-		PMD_DRV_LOG(ERR, "Unsupported crypto transformation mode");
+		PMD_DRV_LOG(ERR, "Unsupported crypto transformation mode\n");
 		return -ENOTSUP;
 	}
 	aead_xform = &conf->crypto_xform->aead;
@@ -388,14 +388,14 @@ ixgbe_crypto_create_session(void *device,
 		if (dev_conf->rxmode.offloads & RTE_ETH_RX_OFFLOAD_SECURITY) {
 			ic_session->op = IXGBE_OP_AUTHENTICATED_DECRYPTION;
 		} else {
-			PMD_DRV_LOG(ERR, "IPsec decryption not enabled");
+			PMD_DRV_LOG(ERR, "IPsec decryption not enabled\n");
 			return -ENOTSUP;
 		}
 	} else {
 		if (dev_conf->txmode.offloads & RTE_ETH_TX_OFFLOAD_SECURITY) {
 			ic_session->op = IXGBE_OP_AUTHENTICATED_ENCRYPTION;
 		} else {
-			PMD_DRV_LOG(ERR, "IPsec encryption not enabled");
+			PMD_DRV_LOG(ERR, "IPsec encryption not enabled\n");
 			return -ENOTSUP;
 		}
 	}
@@ -409,7 +409,7 @@ ixgbe_crypto_create_session(void *device,
 
 	if (ic_session->op == IXGBE_OP_AUTHENTICATED_ENCRYPTION) {
 		if (ixgbe_crypto_add_sa(ic_session)) {
-			PMD_DRV_LOG(ERR, "Failed to add SA");
+			PMD_DRV_LOG(ERR, "Failed to add SA\n");
 			return -EPERM;
 		}
 	}
@@ -431,12 +431,12 @@ ixgbe_crypto_remove_session(void *device,
 	struct ixgbe_crypto_session *ic_session = SECURITY_GET_SESS_PRIV(session);
 
 	if (eth_dev != ic_session->dev) {
-		PMD_DRV_LOG(ERR, "Session not bound to this device");
+		PMD_DRV_LOG(ERR, "Session not bound to this device\n");
 		return -ENODEV;
 	}
 
 	if (ixgbe_crypto_remove_sa(eth_dev, ic_session)) {
-		PMD_DRV_LOG(ERR, "Failed to remove session");
+		PMD_DRV_LOG(ERR, "Failed to remove session\n");
 		return -EFAULT;
 	}
 

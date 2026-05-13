@@ -8,9 +8,8 @@
 #define BAD_PORT	0xBAD
 #define ETH_TYPE_IPV4_VXLAN	0x0800
 #define ETH_TYPE_IPV6_VXLAN	0x86DD
-#define UDP_GTPU_PORT   2152
-#define UDP_VXLAN_PORT  4789
-#define UDP_PORT_MPLS   6635
+#define ETH_VXLAN_DEFAULT_PORT	4789
+#define IP_UDP_PORT_MPLS	6635
 #define UDP_ROCEV2_PORT	4791
 #define DR_FLOW_LAYER_TUNNEL_NO_MPLS (MLX5_FLOW_LAYER_TUNNEL & ~MLX5_FLOW_LAYER_MPLS)
 
@@ -41,10 +40,6 @@
 				 (((_v) & (mask)) << \
 				  (bit_off))); \
 	} while (0)
-
-/* Getter function based on bit offset and mask, for 32bit DW*/
-#define DR_GET_32(p, byte_off, bit_off, mask) \
-	((rte_be_to_cpu_32(*((const rte_be32_t *)(p) + ((byte_off) / 4))) >> (bit_off)) & (mask))
 
 /* Setter function based on bit offset and mask */
 #define DR_SET(p, v, byte_off, bit_off, mask) \
@@ -163,16 +158,16 @@ struct mlx5dr_definer_conv_data {
 	X(SET,		tcp_protocol,		STE_TCP,		rte_flow_item_tcp) \
 	X(SET_BE16,	tcp_src_port,		v->hdr.src_port,	rte_flow_item_tcp) \
 	X(SET_BE16,	tcp_dst_port,		v->hdr.dst_port,	rte_flow_item_tcp) \
-	X(SET,		gtp_udp_port,		UDP_GTPU_PORT,		rte_flow_item_gtp) \
+	X(SET,		gtp_udp_port,		RTE_GTPU_UDP_PORT,	rte_flow_item_gtp) \
 	X(SET_BE32,	gtp_teid,		v->hdr.teid,		rte_flow_item_gtp) \
 	X(SET,		gtp_msg_type,		v->hdr.msg_type,	rte_flow_item_gtp) \
-	X(SET,		gtp_flags,		v->hdr.gtp_hdr_info,	rte_flow_item_gtp) \
+	X(SET,		gtp_ext_flag,		!!v->hdr.gtp_hdr_info,	rte_flow_item_gtp) \
 	X(SET,		gtp_next_ext_hdr,	GTP_PDU_SC,		rte_flow_item_gtp_psc) \
 	X(SET,		gtp_ext_hdr_pdu,	v->hdr.type,		rte_flow_item_gtp_psc) \
 	X(SET,		gtp_ext_hdr_qfi,	v->hdr.qfi,		rte_flow_item_gtp_psc) \
 	X(SET,		vxlan_flags,		v->flags,		rte_flow_item_vxlan) \
-	X(SET,		vxlan_udp_port,		UDP_VXLAN_PORT,		rte_flow_item_vxlan) \
-	X(SET,		mpls_udp_port,		UDP_PORT_MPLS,		rte_flow_item_mpls) \
+	X(SET,		vxlan_udp_port,		ETH_VXLAN_DEFAULT_PORT,	rte_flow_item_vxlan) \
+	X(SET,		mpls_udp_port,		IP_UDP_PORT_MPLS,	rte_flow_item_mpls) \
 	X(SET,		source_qp,		v->queue,		mlx5_rte_flow_item_sq) \
 	X(SET,		tag,			v->data,		rte_flow_item_tag) \
 	X(SET,		metadata,		v->data,		rte_flow_item_meta) \
@@ -188,8 +183,6 @@ struct mlx5dr_definer_conv_data {
 	X(SET,		ib_l4_udp_port,		UDP_ROCEV2_PORT,	rte_flow_item_ib_bth) \
 	X(SET,		ib_l4_opcode,		v->hdr.opcode,		rte_flow_item_ib_bth) \
 	X(SET,		ib_l4_bth_a,		v->hdr.a,		rte_flow_item_ib_bth) \
-	X(SET,		cvlan,			STE_CVLAN,		rte_flow_item_vlan) \
-	X(SET_BE16,	inner_type,		v->inner_type,		rte_flow_item_vlan) \
 
 /* Item set function format */
 #define X(set_type, func_name, value, item_type) \
@@ -384,7 +377,7 @@ mlx5dr_definer_integrity_set(struct mlx5dr_definer_fc *fc,
 {
 	bool inner = (fc->fname == MLX5DR_DEFINER_FNAME_INTEGRITY_I);
 	const struct rte_flow_item_integrity *v = item_spec;
-	uint32_t ok1_bits = DR_GET_32(tag, fc->byte_off, fc->bit_off, fc->bit_mask);
+	uint32_t ok1_bits = 0;
 
 	if (v->l3_ok)
 		ok1_bits |= inner ? BIT(MLX5DR_DEFINER_OKS1_SECOND_L3_OK) :
@@ -436,7 +429,7 @@ mlx5dr_definer_flex_parser_set(struct mlx5dr_definer_fc *fc,
 	idx = fc->fname - MLX5DR_DEFINER_FNAME_FLEX_PARSER_0;
 	byte_off -= idx * sizeof(uint32_t);
 	ret = mlx5_flex_get_parser_value_per_byte_off(flex, flex->handle, byte_off,
-						      is_inner, &val);
+						      false, is_inner, &val);
 	if (ret == -1 || !val)
 		return;
 
@@ -592,11 +585,10 @@ mlx5dr_definer_vport_set(struct mlx5dr_definer_fc *fc,
 			 uint8_t *tag)
 {
 	const struct rte_flow_item_ethdev *v = item_spec;
-	const struct flow_hw_port_info *port_info = NULL;
+	const struct flow_hw_port_info *port_info;
 	uint32_t regc_value;
 
-	if (v)
-		port_info = flow_hw_conv_port_id(v->port_id);
+	port_info = flow_hw_conv_port_id(v->port_id);
 	if (unlikely(!port_info))
 		regc_value = BAD_PORT;
 	else
@@ -777,15 +769,6 @@ mlx5dr_definer_conv_item_vlan(struct mlx5dr_definer_conv_data *cd,
 	struct mlx5dr_definer_fc *fc;
 	bool inner = cd->tunnel;
 
-	if (!cd->relaxed) {
-		/* Mark packet as tagged (CVLAN) */
-		fc = &cd->fc[DR_CALC_FNAME(VLAN_TYPE, inner)];
-		fc->item_idx = item_idx;
-		fc->tag_mask_set = &mlx5dr_definer_ones_set;
-		fc->tag_set = &mlx5dr_definer_cvlan_set;
-		DR_CALC_SET(fc, eth_l2, first_vlan_qualifier, inner);
-	}
-
 	if (!m)
 		return 0;
 
@@ -794,7 +777,8 @@ mlx5dr_definer_conv_item_vlan(struct mlx5dr_definer_conv_data *cd,
 		return rte_errno;
 	}
 
-	if (m->has_more_vlan) {
+	if (!cd->relaxed || m->has_more_vlan) {
+		/* Mark packet as tagged (CVLAN or SVLAN) even if TCI is not specified.*/
 		fc = &cd->fc[DR_CALC_FNAME(VLAN_TYPE, inner)];
 		fc->item_idx = item_idx;
 		fc->tag_mask_set = &mlx5dr_definer_ones_set;
@@ -812,7 +796,7 @@ mlx5dr_definer_conv_item_vlan(struct mlx5dr_definer_conv_data *cd,
 	if (m->hdr.eth_proto) {
 		fc = &cd->fc[DR_CALC_FNAME(ETH_TYPE, inner)];
 		fc->item_idx = item_idx;
-		fc->tag_set = &mlx5dr_definer_inner_type_set;
+		fc->tag_set = &mlx5dr_definer_eth_type_set;
 		DR_CALC_SET(fc, eth_l2, l3_ethertype, inner);
 	}
 
@@ -1186,12 +1170,6 @@ mlx5dr_definer_conv_item_gtp(struct mlx5dr_definer_conv_data *cd,
 	const struct rte_flow_item_gtp *m = item->mask;
 	struct mlx5dr_definer_fc *fc;
 
-	if (cd->tunnel) {
-		DR_LOG(ERR, "Inner GTPU item not supported");
-		rte_errno = ENOTSUP;
-		return rte_errno;
-	}
-
 	/* Overwrite GTPU dest port if not present */
 	fc = &cd->fc[DR_CALC_FNAME(L4_DPORT, false)];
 	if (!fc->tag_set && !cd->relaxed) {
@@ -1204,7 +1182,7 @@ mlx5dr_definer_conv_item_gtp(struct mlx5dr_definer_conv_data *cd,
 	if (!m)
 		return 0;
 
-	if (m->msg_len) {
+	if (m->hdr.plen || m->hdr.gtp_hdr_info & ~MLX5DR_DEFINER_GTP_EXT_HDR_BIT) {
 		rte_errno = ENOTSUP;
 		return rte_errno;
 	}
@@ -1226,11 +1204,11 @@ mlx5dr_definer_conv_item_gtp(struct mlx5dr_definer_conv_data *cd,
 			rte_errno = ENOTSUP;
 			return rte_errno;
 		}
-		fc = &cd->fc[MLX5DR_DEFINER_FNAME_GTP_FLAGS];
+		fc = &cd->fc[MLX5DR_DEFINER_FNAME_GTP_EXT_FLAG];
 		fc->item_idx = item_idx;
-		fc->tag_set = &mlx5dr_definer_gtp_flags_set;
-		fc->bit_mask = __mlx5_mask(header_gtp, v_pt_rsv_flags);
-		fc->bit_off = __mlx5_dw_bit_off(header_gtp, v_pt_rsv_flags);
+		fc->tag_set = &mlx5dr_definer_gtp_ext_flag_set;
+		fc->bit_mask = __mlx5_mask(header_gtp, ext_hdr_flag);
+		fc->bit_off = __mlx5_dw_bit_off(header_gtp, ext_hdr_flag);
 		fc->byte_off = caps->format_select_gtpu_dw_0 * DW_SIZE;
 	}
 
@@ -1327,12 +1305,11 @@ mlx5dr_definer_conv_item_port(struct mlx5dr_definer_conv_data *cd,
 			      int item_idx)
 {
 	struct mlx5dr_cmd_query_caps *caps = cd->ctx->caps;
-	uint16_t port_id = item->mask ?
-			   ((const struct rte_flow_item_ethdev *)(item->mask))->port_id : 0;
+	const struct rte_flow_item_ethdev *m = item->mask;
 	struct mlx5dr_definer_fc *fc;
 	uint8_t bit_offset = 0;
 
-	if (port_id) {
+	if (m->port_id) {
 		if (!caps->wire_regc_mask) {
 			DR_LOG(ERR, "Port ID item not supported, missing wire REGC mask");
 			rte_errno = ENOTSUP;
@@ -1349,6 +1326,10 @@ mlx5dr_definer_conv_item_port(struct mlx5dr_definer_conv_data *cd,
 		DR_CALC_SET_HDR(fc, registers, register_c_0);
 		fc->bit_off = bit_offset;
 		fc->bit_mask = caps->wire_regc_mask >> bit_offset;
+	} else {
+		DR_LOG(ERR, "Pord ID item mask must specify ID mask");
+		rte_errno = EINVAL;
+		return rte_errno;
 	}
 
 	return 0;
@@ -1363,20 +1344,9 @@ mlx5dr_definer_conv_item_vxlan(struct mlx5dr_definer_conv_data *cd,
 	struct mlx5dr_definer_fc *fc;
 	bool inner = cd->tunnel;
 
-	if (inner) {
-		DR_LOG(ERR, "Inner VXLAN item not supported");
-		rte_errno = ENOTSUP;
-		return rte_errno;
-	}
-
-	/* In order to match on VXLAN we must match on ip_protocol and l4_dport */
-	if (m && (m->rsvd0[0] != 0 || m->rsvd0[1] != 0 || m->rsvd0[2] != 0 ||
-	    m->rsvd1 != 0)) {
-		DR_LOG(ERR, "reserved fields are not supported");
-		rte_errno = ENOTSUP;
-		return rte_errno;
-	}
-
+	/* In order to match on VXLAN we must match on ether_type, ip_protocol
+	 * and l4_dport.
+	 */
 	if (!cd->relaxed) {
 		fc = &cd->fc[DR_CALC_FNAME(IP_PROTOCOL, inner)];
 		if (!fc->tag_set) {
@@ -1399,6 +1369,12 @@ mlx5dr_definer_conv_item_vxlan(struct mlx5dr_definer_conv_data *cd,
 		return 0;
 
 	if (m->flags) {
+		if (inner) {
+			DR_LOG(ERR, "Inner VXLAN flags item not supported");
+			rte_errno = ENOTSUP;
+			return rte_errno;
+		}
+
 		fc = &cd->fc[MLX5DR_DEFINER_FNAME_VXLAN_FLAGS];
 		fc->item_idx = item_idx;
 		fc->tag_set = &mlx5dr_definer_vxlan_flags_set;
@@ -1408,6 +1384,12 @@ mlx5dr_definer_conv_item_vxlan(struct mlx5dr_definer_conv_data *cd,
 	}
 
 	if (!is_mem_zero(m->vni, 3)) {
+		if (inner) {
+			DR_LOG(ERR, "Inner VXLAN vni item not supported");
+			rte_errno = ENOTSUP;
+			return rte_errno;
+		}
+
 		fc = &cd->fc[MLX5DR_DEFINER_FNAME_VXLAN_VNI];
 		fc->item_idx = item_idx;
 		fc->tag_set = &mlx5dr_definer_vxlan_vni_set;
@@ -1882,7 +1864,7 @@ mlx5dr_definer_conv_item_ptype(struct mlx5dr_definer_conv_data *cd,
 		 * Cannot be combined with Layer 4 Types (TCP/UDP).
 		 * The exact value must be specified in the mask.
 		 */
-		if ((m->packet_type & RTE_PTYPE_L4_MASK) == RTE_PTYPE_L4_FRAG) {
+		if (m->packet_type == RTE_PTYPE_L4_FRAG) {
 			fc = &cd->fc[DR_CALC_FNAME(PTYPE_FRAG, false)];
 			fc->item_idx = item_idx;
 			fc->tag_set = &mlx5dr_definer_ptype_frag_set;
@@ -1898,7 +1880,7 @@ mlx5dr_definer_conv_item_ptype(struct mlx5dr_definer_conv_data *cd,
 	}
 
 	if (m->packet_type & RTE_PTYPE_INNER_L4_MASK) {
-		if ((m->packet_type & RTE_PTYPE_INNER_L4_MASK) == RTE_PTYPE_INNER_L4_FRAG) {
+		if (m->packet_type == RTE_PTYPE_INNER_L4_FRAG) {
 			fc = &cd->fc[DR_CALC_FNAME(PTYPE_FRAG, true)];
 			fc->item_idx = item_idx;
 			fc->tag_set = &mlx5dr_definer_ptype_frag_set;
@@ -2258,6 +2240,11 @@ mlx5dr_definer_conv_item_esp(struct mlx5dr_definer_conv_data *cd,
 	const struct rte_flow_item_esp *m = item->mask;
 	struct mlx5dr_definer_fc *fc;
 
+	if (!cd->ctx->caps->ipsec_offload) {
+		rte_errno = ENOTSUP;
+		return rte_errno;
+	}
+
 	if (!m)
 		return 0;
 	if (m->hdr.spi) {
@@ -2312,7 +2299,7 @@ mlx5dr_definer_conv_item_flex_parser(struct mlx5dr_definer_conv_data *cd,
 	for (i = 0; i < MLX5_GRAPH_NODE_SAMPLE_NUM; i++) {
 		byte_off = base_off - i * sizeof(uint32_t);
 		ret = mlx5_flex_get_parser_value_per_byte_off(m, v->handle, byte_off,
-							      is_inner, &mask);
+							      true, is_inner, &mask);
 		if (ret == -1) {
 			rte_errno = EINVAL;
 			return rte_errno;
@@ -2534,17 +2521,8 @@ mlx5dr_definer_conv_items_to_hl(struct mlx5dr_context *ctx,
 			break;
 		case RTE_FLOW_ITEM_TYPE_FLEX:
 			ret = mlx5dr_definer_conv_item_flex_parser(&cd, items, i);
-			if (ret == 0) {
-				enum rte_flow_item_flex_tunnel_mode tunnel_mode =
-								FLEX_TUNNEL_MODE_SINGLE;
-
-				ret = mlx5_flex_get_tunnel_mode(items, &tunnel_mode);
-				if (tunnel_mode == FLEX_TUNNEL_MODE_TUNNEL)
-					item_flags |= MLX5_FLOW_ITEM_FLEX_TUNNEL;
-				else
-					item_flags |= cd.tunnel ? MLX5_FLOW_ITEM_INNER_FLEX :
-								  MLX5_FLOW_ITEM_OUTER_FLEX;
-			}
+			item_flags |= cd.tunnel ? MLX5_FLOW_ITEM_INNER_FLEX :
+						  MLX5_FLOW_ITEM_OUTER_FLEX;
 			break;
 		case RTE_FLOW_ITEM_TYPE_MPLS:
 			ret = mlx5dr_definer_conv_item_mpls(&cd, items, i);
@@ -2864,7 +2842,7 @@ mlx5dr_definer_find_best_match_fit(struct mlx5dr_context *ctx,
 		return 0;
 	}
 
-	DR_LOG(DEBUG, "Unable to find supporting match/jumbo definer combination");
+	DR_LOG(ERR, "Unable to find supporting match/jumbo definer combination");
 	rte_errno = ENOTSUP;
 	return rte_errno;
 }
@@ -2997,7 +2975,7 @@ mlx5dr_definer_calc_layout(struct mlx5dr_matcher *matcher,
 	/* Find the match definer layout for header layout match union */
 	ret = mlx5dr_definer_find_best_match_fit(ctx, match_definer, match_hl);
 	if (ret) {
-		DR_LOG(DEBUG, "Failed to create match definer from header layout");
+		DR_LOG(ERR, "Failed to create match definer from header layout");
 		goto free_fc;
 	}
 
@@ -3213,18 +3191,14 @@ mlx5dr_definer_matcher_range_init(struct mlx5dr_context *ctx,
 
 	/* Create optional range definers */
 	for (i = 0; i < matcher->num_of_mt; i++) {
-		/* All must use range if requested */
-		bool is_range = !!mt[i].fcr_sz;
-		bool has_range = matcher->flags & MLX5DR_MATCHER_FLAGS_RANGE_DEFINER;
-
-		if (i && ((is_range && !has_range) || (!is_range && has_range))) {
-			DR_LOG(ERR, "Using range and non range templates is not allowed");
-			rte_errno = EINVAL;
-			goto free_definers;
-		}
-
 		if (!mt[i].fcr_sz)
 			continue;
+
+		/* All must use range if requested */
+		if (i && !mt[i - 1].range_definer) {
+			DR_LOG(ERR, "Using range and non range templates is not allowed");
+			goto free_definers;
+		}
 
 		matcher->flags |= MLX5DR_MATCHER_FLAGS_RANGE_DEFINER;
 		/* Create definer without fcr binding, already binded */
@@ -3346,7 +3320,7 @@ int mlx5dr_definer_matcher_init(struct mlx5dr_context *ctx,
 
 	ret = mlx5dr_definer_calc_layout(matcher, &match_layout, &range_layout);
 	if (ret) {
-		DR_LOG(DEBUG, "Failed to calculate matcher definer layout");
+		DR_LOG(ERR, "Failed to calculate matcher definer layout");
 		return ret;
 	}
 

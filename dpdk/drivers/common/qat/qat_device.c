@@ -29,7 +29,6 @@ struct qat_dev_hw_spec_funcs *qat_dev_hw_spec[QAT_N_GENS];
 /* per-process array of device data */
 struct qat_device_info qat_pci_devs[RTE_PMD_QAT_MAX_PCI_DEVICES];
 static int qat_nb_pci_devices;
-int qat_legacy_capa;
 
 /*
  * The set of PCI devices this driver supports
@@ -335,7 +334,11 @@ qat_pci_device_allocate(struct rte_pci_device *pci_dev,
 
 	return qat_dev;
 error:
-	rte_memzone_free(qat_dev_mz);
+	if (rte_memzone_free(qat_dev_mz)) {
+		QAT_LOG(DEBUG,
+			"QAT internal error! Trying to free already allocated memzone: %s",
+			qat_dev_mz->name);
+	}
 	return NULL;
 }
 

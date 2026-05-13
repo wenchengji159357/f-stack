@@ -569,7 +569,7 @@ qat_sym_session_configure_cipher(struct rte_cryptodev *dev,
 		ret = -ENOTSUP;
 		goto error_out;
 	default:
-		QAT_LOG(ERR, "Crypto: Undefined Cipher specified %u",
+		QAT_LOG(ERR, "Crypto: Undefined Cipher specified %u\n",
 				cipher_xform->algo);
 		ret = -EINVAL;
 		goto error_out;
@@ -1073,7 +1073,7 @@ qat_sym_session_configure_aead(struct rte_cryptodev *dev,
 						aead_xform);
 		break;
 	default:
-		QAT_LOG(ERR, "Crypto: Undefined AEAD specified %u",
+		QAT_LOG(ERR, "Crypto: Undefined AEAD specified %u\n",
 				aead_xform->algo);
 		return -EINVAL;
 	}
@@ -1676,7 +1676,7 @@ static int aes_ipsecmb_job(uint8_t *in, uint8_t *out, IMB_MGR *m,
 
 	err = imb_get_errno(m);
 	if (err)
-		QAT_LOG(ERR, "Error: %s!", imb_get_strerror(err));
+		QAT_LOG(ERR, "Error: %s!\n", imb_get_strerror(err));
 
 	return -EFAULT;
 }
@@ -2174,7 +2174,7 @@ int qat_sym_cd_cipher_set(struct qat_sym_session *cdesc,
 	return 0;
 }
 
-static int qat_sym_cd_auth_set(struct qat_sym_session *cdesc,
+int qat_sym_cd_auth_set(struct qat_sym_session *cdesc,
 		const uint8_t *authkey,
 		uint32_t authkeylen,
 		uint32_t aad_length,
@@ -2297,8 +2297,7 @@ static int qat_sym_cd_auth_set(struct qat_sym_session *cdesc,
 			qat_hash_get_block_size(cdesc->qat_hash_alg) >> 3;
 		auth_param->u2.inner_prefix_sz =
 			qat_hash_get_block_size(cdesc->qat_hash_alg);
-		auth_param->hash_state_sz = (hash_cd_ctrl->outer_prefix_sz +
-			auth_param->u2.inner_prefix_sz) >> 3;
+		auth_param->hash_state_sz = digestsize;
 		if (qat_dev_gen == QAT_GEN4) {
 			ICP_QAT_FW_HASH_FLAG_MODE2_SET(
 				hash_cd_ctrl->hash_flags,
@@ -2443,27 +2442,27 @@ static int qat_sym_cd_auth_set(struct qat_sym_session *cdesc,
 		break;
 	case ICP_QAT_HW_AUTH_ALGO_SHA3_224:
 		/* Plain SHA3-224 */
+		memset(cdesc->cd_cur_ptr, 0, state1_size);
 		state1_size = qat_hash_get_state1_size(
 				cdesc->qat_hash_alg);
-		memset(cdesc->cd_cur_ptr, 0, state1_size);
 		break;
 	case ICP_QAT_HW_AUTH_ALGO_SHA3_256:
 		/* Plain SHA3-256 */
+		memset(cdesc->cd_cur_ptr, 0, state1_size);
 		state1_size = qat_hash_get_state1_size(
 				cdesc->qat_hash_alg);
-		memset(cdesc->cd_cur_ptr, 0, state1_size);
 		break;
 	case ICP_QAT_HW_AUTH_ALGO_SHA3_384:
 		/* Plain SHA3-384 */
+		memset(cdesc->cd_cur_ptr, 0, state1_size);
 		state1_size = qat_hash_get_state1_size(
 				cdesc->qat_hash_alg);
-		memset(cdesc->cd_cur_ptr, 0, state1_size);
 		break;
 	case ICP_QAT_HW_AUTH_ALGO_SHA3_512:
 		/* Plain SHA3-512 */
+		memset(cdesc->cd_cur_ptr, 0, state1_size);
 		state1_size = qat_hash_get_state1_size(
 				cdesc->qat_hash_alg);
-		memset(cdesc->cd_cur_ptr, 0, state1_size);
 		break;
 	case ICP_QAT_HW_AUTH_ALGO_AES_XCBC_MAC:
 		state1_size = ICP_QAT_HW_AES_XCBC_MAC_STATE1_SZ;
@@ -2481,8 +2480,10 @@ static int qat_sym_cd_auth_set(struct qat_sym_session *cdesc,
 			&state2_size, cdesc->aes_cmac);
 #endif
 		if (ret) {
-			QAT_LOG(ERR, "(%s)precompute failed",
-				cdesc->aes_cmac ? "CMAC" : "XCBC");
+			cdesc->aes_cmac ? QAT_LOG(ERR,
+						  "(CMAC)precompute failed")
+					: QAT_LOG(ERR,
+						  "(XCBC)precompute failed");
 			return -EFAULT;
 		}
 		break;

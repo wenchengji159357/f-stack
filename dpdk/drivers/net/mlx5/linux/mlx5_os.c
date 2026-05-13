@@ -14,7 +14,6 @@
 #include <linux/sockios.h>
 #include <linux/ethtool.h>
 #include <fcntl.h>
-#include <dlfcn.h>
 
 #include <rte_malloc.h>
 #include <ethdev_driver.h>
@@ -456,16 +455,15 @@ __mlx5_discovery_misc5_cap(struct mlx5_priv *priv)
  * Routine checks the reference counter and does actual
  * resources creation/initialization only if counter is zero.
  *
- * @param[in] eth_dev
- *   Pointer to the device.
+ * @param[in] priv
+ *   Pointer to the private device data structure.
  *
  * @return
  *   Zero on success, positive error code otherwise.
  */
 static int
-mlx5_alloc_shared_dr(struct rte_eth_dev *eth_dev)
+mlx5_alloc_shared_dr(struct mlx5_priv *priv)
 {
-	struct mlx5_priv *priv = eth_dev->data->dev_private;
 	struct mlx5_dev_ctx_shared *sh = priv->sh;
 	char s[MLX5_NAME_SIZE] __rte_unused;
 	int err;
@@ -580,44 +578,6 @@ mlx5_alloc_shared_dr(struct rte_eth_dev *eth_dev)
 		err = errno;
 		goto error;
 	}
-
-	if (sh->config.dv_flow_en == 1) {
-		/* Query availability of metadata reg_c's. */
-		if (!priv->sh->metadata_regc_check_flag) {
-			err = mlx5_flow_discover_mreg_c(eth_dev);
-			if (err < 0) {
-				err = -err;
-				goto error;
-			}
-		}
-		if (!mlx5_flow_ext_mreg_supported(eth_dev)) {
-			DRV_LOG(DEBUG,
-				"port %u extensive metadata register is not supported",
-				eth_dev->data->port_id);
-			if (sh->config.dv_xmeta_en != MLX5_XMETA_MODE_LEGACY) {
-				DRV_LOG(ERR, "metadata mode %u is not supported "
-					     "(no metadata registers available)",
-					     sh->config.dv_xmeta_en);
-				err = ENOTSUP;
-				goto error;
-			}
-		}
-		if (sh->config.dv_xmeta_en != MLX5_XMETA_MODE_LEGACY &&
-		    mlx5_flow_ext_mreg_supported(eth_dev) && sh->dv_regc0_mask) {
-			sh->mreg_cp_tbl = mlx5_hlist_create(MLX5_FLOW_MREG_HNAME,
-							    MLX5_FLOW_MREG_HTABLE_SZ,
-							    false, true, eth_dev,
-							    flow_dv_mreg_create_cb,
-							    flow_dv_mreg_match_cb,
-							    flow_dv_mreg_remove_cb,
-							    flow_dv_mreg_clone_cb,
-							    flow_dv_mreg_clone_free_cb);
-			if (!sh->mreg_cp_tbl) {
-				err = ENOMEM;
-				goto error;
-			}
-		}
-	}
 #endif
 	if (!sh->tunnel_hub && sh->config.dv_miss_info)
 		err = mlx5_alloc_tunnel_hub(sh);
@@ -701,10 +661,6 @@ error:
 	if (sh->dest_array_list) {
 		mlx5_list_destroy(sh->dest_array_list);
 		sh->dest_array_list = NULL;
-	}
-	if (sh->mreg_cp_tbl) {
-		mlx5_hlist_destroy(sh->mreg_cp_tbl);
-		sh->mreg_cp_tbl = NULL;
 	}
 	return err;
 }
@@ -802,10 +758,6 @@ mlx5_os_free_shared_dr(struct mlx5_priv *priv)
 	if (sh->dest_array_list) {
 		mlx5_list_destroy(sh->dest_array_list);
 		sh->dest_array_list = NULL;
-	}
-	if (sh->mreg_cp_tbl) {
-		mlx5_hlist_destroy(sh->mreg_cp_tbl);
-		sh->mreg_cp_tbl = NULL;
 	}
 }
 
@@ -1563,8 +1515,7 @@ err_secondary:
 	eth_dev->rx_queue_count = mlx5_rx_queue_count;
 	/* Register MAC address. */
 	claim_zero(mlx5_mac_addr_add(eth_dev, &mac, 0, 0));
-	/* Sync mac addresses for PF or VF/SF if vf_nl_en is true */
-	if ((!sh->dev_cap.vf && !sh->dev_cap.sf) || sh->config.vf_nl_en)
+	if (sh->dev_cap.vf && sh->config.vf_nl_en)
 		mlx5_nl_mac_addr_sync(priv->nl_socket_route,
 				      mlx5_ifindex(eth_dev),
 				      eth_dev->data->mac_addrs,
@@ -1572,11 +1523,9 @@ err_secondary:
 	priv->ctrl_flows = 0;
 	rte_spinlock_init(&priv->flow_list_lock);
 	TAILQ_INIT(&priv->flow_meters);
-	if (priv->mtr_en) {
-		priv->mtr_profile_tbl = mlx5_l3t_create(MLX5_L3T_TYPE_PTR);
-		if (!priv->mtr_profile_tbl)
-			goto error;
-	}
+	priv->mtr_profile_tbl = mlx5_l3t_create(MLX5_L3T_TYPE_PTR);
+	if (!priv->mtr_profile_tbl)
+		goto error;
 	/* Bring Ethernet device up. */
 	DRV_LOG(DEBUG, "port %u forcing Ethernet interface up",
 		eth_dev->data->port_id);
@@ -1596,6 +1545,13 @@ err_secondary:
 	}
 	/* Create context for virtual machine VLAN workaround. */
 	priv->vmwa_context = mlx5_vlan_vmwa_init(eth_dev, spawn->ifindex);
+	if (sh->config.dv_flow_en) {
+		err = mlx5_alloc_shared_dr(priv);
+		if (err)
+			goto error;
+		if (mlx5_flex_item_port_init(eth_dev) < 0)
+			goto error;
+	}
 	if (mlx5_devx_obj_ops_en(sh)) {
 		priv->obj_ops = devx_obj_ops;
 		mlx5_queue_counter_id_prepare(eth_dev);
@@ -1646,13 +1602,6 @@ err_secondary:
 			goto error;
 	}
 	rte_rwlock_init(&priv->ind_tbls_lock);
-	if (sh->config.dv_flow_en) {
-		err = mlx5_alloc_shared_dr(eth_dev);
-		if (err)
-			goto error;
-		if (mlx5_flex_item_port_init(eth_dev) < 0)
-			goto error;
-	}
 	if (priv->sh->config.dv_flow_en == 2) {
 #ifdef HAVE_MLX5_HWS_SUPPORT
 		if (priv->sh->config.dv_esw_en) {
@@ -1733,6 +1682,43 @@ err_secondary:
 		err = -err;
 		goto error;
 	}
+	/* Query availability of metadata reg_c's. */
+	if (!priv->sh->metadata_regc_check_flag) {
+		err = mlx5_flow_discover_mreg_c(eth_dev);
+		if (err < 0) {
+			err = -err;
+			goto error;
+		}
+	}
+	if (!mlx5_flow_ext_mreg_supported(eth_dev)) {
+		DRV_LOG(DEBUG,
+			"port %u extensive metadata register is not supported",
+			eth_dev->data->port_id);
+		if (sh->config.dv_xmeta_en != MLX5_XMETA_MODE_LEGACY) {
+			DRV_LOG(ERR, "metadata mode %u is not supported "
+				     "(no metadata registers available)",
+				     sh->config.dv_xmeta_en);
+			err = ENOTSUP;
+			goto error;
+		}
+	}
+	if (sh->config.dv_flow_en &&
+	    sh->config.dv_xmeta_en != MLX5_XMETA_MODE_LEGACY &&
+	    mlx5_flow_ext_mreg_supported(eth_dev) &&
+	    priv->sh->dv_regc0_mask) {
+		priv->mreg_cp_tbl = mlx5_hlist_create(MLX5_FLOW_MREG_HNAME,
+						      MLX5_FLOW_MREG_HTABLE_SZ,
+						      false, true, eth_dev,
+						      flow_dv_mreg_create_cb,
+						      flow_dv_mreg_match_cb,
+						      flow_dv_mreg_remove_cb,
+						      flow_dv_mreg_clone_cb,
+						    flow_dv_mreg_clone_free_cb);
+		if (!priv->mreg_cp_tbl) {
+			err = ENOMEM;
+			goto error;
+		}
+	}
 	rte_spinlock_init(&priv->shared_act_sl);
 	mlx5_flow_counter_mode_config(eth_dev);
 	mlx5_flow_drop_action_config(eth_dev);
@@ -1751,6 +1737,8 @@ error:
 		    priv->sh->config.dv_esw_en)
 			flow_hw_destroy_vport_action(eth_dev);
 #endif
+		if (priv->mreg_cp_tbl)
+			mlx5_hlist_destroy(priv->mreg_cp_tbl);
 		if (priv->sh)
 			mlx5_os_free_shared_dr(priv);
 		if (priv->nl_socket_route >= 0)
@@ -2029,7 +2017,6 @@ close_nlsk_fd:
 
 #define SYSFS_MPESW_PARAM_MAX_LEN 16
 
-static char *(*real_if_indextoname)(unsigned int, char *) = NULL;
 static int
 mlx5_sysfs_esw_multiport_get(struct ibv_device *ibv, struct rte_pci_addr *pci_addr, int *enabled)
 {
@@ -2059,16 +2046,7 @@ mlx5_sysfs_esw_multiport_get(struct ibv_device *ibv, struct rte_pci_addr *pci_ad
 		ifindex = mlx5_nl_ifindex(nl_rdma, ibv->name, i);
 		if (!ifindex)
 			continue;
-
-		// for ff tools
-		if (!real_if_indextoname) {
-			real_if_indextoname = __extension__ (char *(*)(unsigned int, char *))dlsym(RTLD_NEXT, "if_indextoname");
-			if (!real_if_indextoname) {
-				rte_errno = errno;
-				return -rte_errno;
-			}
-		}
-		if (!real_if_indextoname(ifindex, ifname))
+		if (!if_indextoname(ifindex, ifname))
 			continue;
 		MKSTR(sysfs_if_path, "/sys/class/net/%s", ifname);
 		if (mlx5_get_pci_addr(sysfs_if_path, &if_pci_addr))
@@ -2451,7 +2429,8 @@ mlx5_os_pci_probe_pf(struct mlx5_common_device *cdev,
 						list[ns].info.master = 0;
 						list[ns].info.representor = 0;
 					}
-					ns++;
+					if (list[ns].info.port_name == bd)
+						ns++;
 					break;
 				case MLX5_PHYS_PORT_NAME_TYPE_PFHPF:
 					/* Fallthrough */
@@ -2980,15 +2959,10 @@ mlx5_os_dev_shared_handler_install(struct mlx5_dev_ctx_shared *sh)
 void
 mlx5_os_dev_shared_handler_uninstall(struct mlx5_dev_ctx_shared *sh)
 {
-	int fd;
-
 	mlx5_os_interrupt_handler_destroy(sh->intr_handle,
 					  mlx5_dev_interrupt_handler, sh);
-	fd = rte_intr_fd_get(sh->intr_handle_nl);
 	mlx5_os_interrupt_handler_destroy(sh->intr_handle_nl,
 					  mlx5_dev_interrupt_handler_nl, sh);
-	if (fd >= 0)
-		close(fd);
 #ifdef HAVE_IBV_DEVX_ASYNC
 	mlx5_os_interrupt_handler_destroy(sh->intr_handle_devx,
 					  mlx5_dev_interrupt_handler_devx, sh);
@@ -3019,15 +2993,9 @@ mlx5_os_read_dev_stat(struct mlx5_priv *priv, const char *ctr_name,
 
 	if (priv->sh) {
 		if (priv->q_counters != NULL &&
-		    strcmp(ctr_name, "out_of_buffer") == 0) {
-			if (rte_eal_process_type() == RTE_PROC_SECONDARY) {
-				DRV_LOG(WARNING, "Devx out_of_buffer counter is not supported in the secondary process");
-				rte_errno = ENOTSUP;
-				return 1;
-			}
+		    strcmp(ctr_name, "out_of_buffer") == 0)
 			return mlx5_devx_cmd_queue_counter_query
 					(priv->q_counters, 0, (uint32_t *)stat);
-		}
 		MKSTR(path, "%s/ports/%d/hw_counters/%s",
 		      priv->sh->ibdev_path,
 		      priv->dev_port,

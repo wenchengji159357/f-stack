@@ -1621,7 +1621,7 @@ struct ice_aqc_get_link_status_data {
 #define ICE_AQ_LINK_PWR_QSFP_CLASS_3	2
 #define ICE_AQ_LINK_PWR_QSFP_CLASS_4	3
 	__le16 link_speed;
-#define ICE_AQ_LINK_SPEED_M             0xFFF
+#define ICE_AQ_LINK_SPEED_M		0x7FF
 #define ICE_AQ_LINK_SPEED_10MB		BIT(0)
 #define ICE_AQ_LINK_SPEED_100MB		BIT(1)
 #define ICE_AQ_LINK_SPEED_1000MB	BIT(2)
@@ -1728,8 +1728,8 @@ struct ice_aqc_link_topo_addr {
 #define ICE_AQC_LINK_TOPO_HANDLE_M	(0x3FF << ICE_AQC_LINK_TOPO_HANDLE_S)
 /* Used to decode the handle field */
 #define ICE_AQC_LINK_TOPO_HANDLE_BRD_TYPE_M	BIT(9)
-#define ICE_AQC_LINK_TOPO_HANDLE_BRD_TYPE_LOM	0
-#define ICE_AQC_LINK_TOPO_HANDLE_BRD_TYPE_MEZZ	BIT(9)
+#define ICE_AQC_LINK_TOPO_HANDLE_BRD_TYPE_LOM	BIT(9)
+#define ICE_AQC_LINK_TOPO_HANDLE_BRD_TYPE_MEZZ	0
 #define ICE_AQC_LINK_TOPO_HANDLE_NODE_S		0
 /* In case of a Mezzanine type */
 #define ICE_AQC_LINK_TOPO_HANDLE_MEZZ_NODE_M	\

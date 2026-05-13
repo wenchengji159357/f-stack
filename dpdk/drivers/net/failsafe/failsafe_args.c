@@ -248,7 +248,7 @@ fs_parse_device_param(struct rte_eth_dev *dev, const char *param,
 			goto free_args;
 	} else {
 		ERROR("Unrecognized device type: %.*s", (int)b, param);
-		ret = -EINVAL;
+		return -EINVAL;
 	}
 free_args:
 	free(args);
@@ -406,7 +406,7 @@ failsafe_args_parse(struct rte_eth_dev *dev, const char *params)
 		kvlist = rte_kvargs_parse(mut_params,
 				pmd_failsafe_init_parameters);
 		if (kvlist == NULL) {
-			ERROR("Error parsing parameters, usage:"
+			ERROR("Error parsing parameters, usage:\n"
 				PMD_FAILSAFE_PARAM_STRING);
 			return -1;
 		}

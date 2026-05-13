@@ -379,8 +379,7 @@ _mlx5_ipool_get_cache(struct mlx5_indexed_pool *pool, int cidx, uint32_t idx)
 	idx -= 1;
 	trunk_idx = mlx5_trunk_idx_get(pool, idx);
 	trunk = lc->trunks[trunk_idx];
-	if (!trunk)
-		return NULL;
+	MLX5_ASSERT(trunk);
 	entry_idx = idx - mlx5_trunk_idx_offset_get(pool, trunk_idx);
 	return &trunk->data[entry_idx * pool->cfg.size];
 }

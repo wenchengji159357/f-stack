@@ -1022,8 +1022,6 @@ enum txgbe_5tuple_protocol {
 #define   TXGBE_MACRXFLT_CTL_PASS       LS(3, 6, 0x3)
 #define   TXGBE_MACRXFLT_RXALL          MS(31, 0x1)
 
-#define TXGBE_MAC_WDG_TIMEOUT           0x01100C
-
 /******************************************************************************
  * Statistic Registers
  ******************************************************************************/
@@ -1197,7 +1195,7 @@ enum txgbe_5tuple_protocol {
 #define   TXGBE_ICRMISC_ANDONE MS(19, 0x1) /* link auto-nego done */
 #define   TXGBE_ICRMISC_ERRIG  MS(20, 0x1) /* integrity error */
 #define   TXGBE_ICRMISC_SPI    MS(21, 0x1) /* SPI interface */
-#define   TXGBE_ICRMISC_VFMBX  MS(23, 0x1) /* VF-PF message box */
+#define   TXGBE_ICRMISC_VFMBX  MS(22, 0x1) /* VF-PF message box */
 #define   TXGBE_ICRMISC_GPIO   MS(26, 0x1) /* GPIO interrupt */
 #define   TXGBE_ICRMISC_ERRPCI MS(27, 0x1) /* pcie request error */
 #define   TXGBE_ICRMISC_HEAT   MS(28, 0x1) /* overheat detection */
@@ -1237,9 +1235,6 @@ enum txgbe_5tuple_protocol {
 #define   TXGBE_IVAR_VLD                MS(7, 0x1)
 #define TXGBE_TCPTMR                    0x000170
 #define TXGBE_ITRSEL                    0x000180
-
-#define TXGBE_BMECTL                    0x012020
-#define TXGBE_BMEPEND                   0x000168
 
 /* P2V Mailbox */
 #define TXGBE_MBMEM(i)           (0x005000 + 0x40 * (i)) /* 0-63 */

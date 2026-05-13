@@ -105,6 +105,7 @@ enum index {
 	HASH,
 
 	/* Flex arguments */
+	FLEX_ITEM_INIT,
 	FLEX_ITEM_CREATE,
 	FLEX_ITEM_DESTROY,
 
@@ -1248,6 +1249,7 @@ struct parse_action_priv {
 	})
 
 static const enum index next_flex_item[] = {
+	FLEX_ITEM_INIT,
 	FLEX_ITEM_CREATE,
 	FLEX_ITEM_DESTROY,
 	ZERO,
@@ -3518,7 +3520,7 @@ static const struct token token_list[] = {
 	[QUEUE_DESTROY] = {
 		.name = "destroy",
 		.help = "destroy a flow rule",
-		.next = NEXT(NEXT_ENTRY(QUEUE_DESTROY_POSTPONE),
+		.next = NEXT(NEXT_ENTRY(QUEUE_DESTROY_ID),
 			     NEXT_ENTRY(COMMON_QUEUE_ID)),
 		.args = ARGS(ARGS_ENTRY(struct buffer, queue)),
 		.call = parse_qo_destroy,
@@ -3929,6 +3931,15 @@ static const struct token token_list[] = {
 		.help = "flex item API",
 		.next = NEXT(next_flex_item),
 		.call = parse_flex,
+	},
+	[FLEX_ITEM_INIT] = {
+		.name = "init",
+		.help = "flex item init",
+		.args = ARGS(ARGS_ENTRY(struct buffer, args.flex.token),
+			     ARGS_ENTRY(struct buffer, port)),
+		.next = NEXT(NEXT_ENTRY(COMMON_FLEX_TOKEN),
+			     NEXT_ENTRY(COMMON_PORT_ID)),
+		.call = parse_flex
 	},
 	[FLEX_ITEM_CREATE] = {
 		.name = "create",
@@ -5532,12 +5543,9 @@ static const struct token token_list[] = {
 	[ITEM_CONNTRACK] = {
 		.name = "conntrack",
 		.help = "conntrack state",
-		.priv = PRIV_ITEM(CONNTRACK,
-				  sizeof(struct rte_flow_item_conntrack)),
 		.next = NEXT(NEXT_ENTRY(ITEM_NEXT), NEXT_ENTRY(COMMON_UNSIGNED),
 			     item_param),
 		.args = ARGS(ARGS_ENTRY(struct rte_flow_item_conntrack, flags)),
-		.call = parse_vc,
 	},
 	[ITEM_PORT_REPRESENTOR] = {
 		.name = "port_representor",
@@ -6897,7 +6905,7 @@ static const struct token token_list[] = {
 		.comp = comp_none,
 	},
 	[ACTION_MODIFY_FIELD_SRC_TAG_INDEX] = {
-		.name = "src_tag_index",
+		.name = "stc_tag_index",
 		.help = "source field tag array",
 		.next = NEXT(action_modify_field_src,
 			     NEXT_ENTRY(COMMON_UNSIGNED)),
@@ -7387,13 +7395,11 @@ static const struct token token_list[] = {
 		.type = "UNSIGNED",
 		.help = "unsigned integer value",
 		.call = parse_indlst_id2ptr,
-		.comp = comp_none,
 	},
 	[INDIRECT_LIST_ACTION_ID2PTR_CONF] = {
 		.type = "UNSIGNED",
 		.help = "unsigned integer value",
 		.call = parse_indlst_id2ptr,
-		.comp = comp_none,
 	},
 	[ACTION_SHARED_INDIRECT] = {
 		.name = "shared_indirect",
@@ -10709,6 +10715,7 @@ parse_flex(struct context *ctx, const struct token *token,
 		switch (ctx->curr) {
 		default:
 			break;
+		case FLEX_ITEM_INIT:
 		case FLEX_ITEM_CREATE:
 		case FLEX_ITEM_DESTROY:
 			out->command = ctx->curr;
@@ -11327,36 +11334,34 @@ parse_indlst_id2ptr(struct context *ctx, const struct token *token,
 	uint32_t id;
 	int ret;
 
+	if (!action)
+		return -1;
 	ctx->objdata = 0;
 	ctx->object = &id;
 	ctx->objmask = NULL;
 	ret = parse_int(ctx, token, str, len, ctx->object, sizeof(id));
-	ctx->object = action;
 	if (ret != (int)len)
 		return ret;
-
-	/* set handle and conf */
-	if (action) {
-		action_conf = (void *)(uintptr_t)action->conf;
-		action_conf->conf = NULL;
-		switch (ctx->curr) {
-		case INDIRECT_LIST_ACTION_ID2PTR_HANDLE:
-		action_conf->handle = (typeof(action_conf->handle))
-					port_action_handle_get_by_id(ctx->port, id);
-			if (!action_conf->handle) {
-				printf("no indirect list handle for id %u\n", id);
-				return -1;
-			}
-			break;
-		case INDIRECT_LIST_ACTION_ID2PTR_CONF:
-			indlst_conf = indirect_action_list_conf_get(id);
-			if (!indlst_conf)
-				return -1;
-			action_conf->conf = (const void **)indlst_conf->conf;
-			break;
-		default:
-			break;
+	ctx->object = action;
+	action_conf = (void *)(uintptr_t)action->conf;
+	action_conf->conf = NULL;
+	switch (ctx->curr) {
+	case INDIRECT_LIST_ACTION_ID2PTR_HANDLE:
+	action_conf->handle = (typeof(action_conf->handle))
+				port_action_handle_get_by_id(ctx->port, id);
+		if (!action_conf->handle) {
+			printf("no indirect list handle for id %u\n", id);
+			return -1;
 		}
+		break;
+	case INDIRECT_LIST_ACTION_ID2PTR_CONF:
+		indlst_conf = indirect_action_list_conf_get(id);
+		if (!indlst_conf)
+			return -1;
+		action_conf->conf = (const void **)indlst_conf->conf;
+		break;
+	default:
+		break;
 	}
 	return ret;
 }
@@ -12111,7 +12116,7 @@ comp_names_to_index(struct context *ctx, const struct token *token,
 	RTE_SET_USED(token);
 	if (!buf)
 		return names_size;
-	if (ent < names_size && names[ent] != NULL)
+	if (names[ent] && ent < names_size)
 		return rte_strscpy(buf, names[ent], size);
 	return -1;
 
@@ -12604,7 +12609,6 @@ cmd_flow_parsed(const struct buffer *in)
 		port_queue_action_handle_create(
 				in->port, in->queue, in->postpone,
 				in->args.vc.attr.group,
-				in->command == QUEUE_INDIRECT_ACTION_LIST_CREATE,
 				&((const struct rte_flow_indir_action_conf) {
 					.ingress = in->args.vc.attr.ingress,
 					.egress = in->args.vc.attr.egress,

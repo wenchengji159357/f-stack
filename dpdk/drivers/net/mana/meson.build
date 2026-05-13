@@ -19,14 +19,12 @@ sources += files(
 )
 
 libnames = ['ibverbs', 'mana']
-libs = []
 foreach libname:libnames
     lib = dependency('lib' + libname, required:false)
     if not lib.found()
         lib = cc.find_library(libname, required:false)
     endif
     if lib.found()
-        libs += lib
         ext_deps += lib
     else
         build = false
@@ -45,7 +43,7 @@ required_symbols = [
 ]
 
 foreach arg:required_symbols
-    if not cc.has_header_symbol(arg[0], arg[1], dependencies: libs, args: cflags)
+    if not cc.has_header_symbol(arg[0], arg[1])
         build = false
         reason = 'missing symbol "' + arg[1] + '" in "' + arg[0] + '"'
         subdir_done()

@@ -216,7 +216,7 @@ static const struct rte_flow_desc_data rte_flow_desc_action[] = {
 		       sizeof(struct rte_flow_action_of_push_mpls)),
 	MK_FLOW_ACTION(VXLAN_ENCAP, sizeof(struct rte_flow_action_vxlan_encap)),
 	MK_FLOW_ACTION(VXLAN_DECAP, 0),
-	MK_FLOW_ACTION(NVGRE_ENCAP, sizeof(struct rte_flow_action_nvgre_encap)),
+	MK_FLOW_ACTION(NVGRE_ENCAP, sizeof(struct rte_flow_action_vxlan_encap)),
 	MK_FLOW_ACTION(NVGRE_DECAP, 0),
 	MK_FLOW_ACTION(RAW_ENCAP, sizeof(struct rte_flow_action_raw_encap)),
 	MK_FLOW_ACTION(RAW_DECAP, sizeof(struct rte_flow_action_raw_decap)),
@@ -616,7 +616,6 @@ rte_flow_conv_item_spec(void *buf, const size_t size,
 	switch (item->type) {
 		union {
 			const struct rte_flow_item_raw *raw;
-			const struct rte_flow_item_geneve_opt *geneve_opt;
 		} spec;
 		union {
 			const struct rte_flow_item_raw *raw;
@@ -626,13 +625,10 @@ rte_flow_conv_item_spec(void *buf, const size_t size,
 		} mask;
 		union {
 			const struct rte_flow_item_raw *raw;
-			const struct rte_flow_item_geneve_opt *geneve_opt;
 		} src;
 		union {
 			struct rte_flow_item_raw *raw;
-			struct rte_flow_item_geneve_opt *geneve_opt;
 		} dst;
-		void *deep_src;
 		size_t tmp;
 
 	case RTE_FLOW_ITEM_TYPE_RAW:
@@ -661,29 +657,12 @@ rte_flow_conv_item_spec(void *buf, const size_t size,
 			tmp = last.raw->length & mask.raw->length;
 		if (tmp) {
 			off = RTE_ALIGN_CEIL(off, sizeof(*dst.raw->pattern));
-			if (size >= off + tmp) {
-				deep_src = (void *)((uintptr_t)dst.raw + off);
-				dst.raw->pattern = rte_memcpy(deep_src,
-							      src.raw->pattern,
-							      tmp);
-			}
+			if (size >= off + tmp)
+				dst.raw->pattern = rte_memcpy
+					((void *)((uintptr_t)dst.raw + off),
+					 src.raw->pattern, tmp);
 			off += tmp;
 		}
-		break;
-	case RTE_FLOW_ITEM_TYPE_GENEVE_OPT:
-		off = rte_flow_conv_copy(buf, data, size,
-					 rte_flow_desc_item, item->type);
-		spec.geneve_opt = item->spec;
-		src.geneve_opt = data;
-		dst.geneve_opt = buf;
-		tmp = spec.geneve_opt->option_len << 2;
-		if (size > 0 && src.geneve_opt->data) {
-			deep_src = (void *)((uintptr_t)(dst.geneve_opt + 1));
-			dst.geneve_opt->data = rte_memcpy(deep_src,
-							  src.geneve_opt->data,
-							  tmp);
-		}
-		off += tmp;
 		break;
 	default:
 		off = rte_flow_conv_copy(buf, data, size,
@@ -1675,21 +1654,21 @@ rte_flow_configure(uint16_t port_id,
 		RTE_FLOW_LOG(INFO,
 			"Device with port_id=%"PRIu16" is not configured.\n",
 			port_id);
-		goto error;
+		return -EINVAL;
 	}
 	if (dev->data->dev_started != 0) {
 		RTE_FLOW_LOG(INFO,
 			"Device with port_id=%"PRIu16" already started.\n",
 			port_id);
-		goto error;
+		return -EINVAL;
 	}
 	if (port_attr == NULL) {
 		RTE_FLOW_LOG(ERR, "Port %"PRIu16" info is NULL.\n", port_id);
-		goto error;
+		return -EINVAL;
 	}
 	if (queue_attr == NULL) {
 		RTE_FLOW_LOG(ERR, "Port %"PRIu16" queue info is NULL.\n", port_id);
-		goto error;
+		return -EINVAL;
 	}
 	if ((port_attr->flags & RTE_FLOW_PORT_FLAG_SHARE_INDIRECT) &&
 	     !rte_eth_dev_is_valid_port(port_attr->host_port_id)) {
@@ -1710,10 +1689,6 @@ rte_flow_configure(uint16_t port_id,
 	return rte_flow_error_set(error, ENOTSUP,
 				  RTE_FLOW_ERROR_TYPE_UNSPECIFIED,
 				  NULL, rte_strerror(ENOTSUP));
-error:
-	return rte_flow_error_set(error, EINVAL,
-				  RTE_FLOW_ERROR_TYPE_UNSPECIFIED,
-				  NULL, rte_strerror(EINVAL));
 }
 
 struct rte_flow_pattern_template *

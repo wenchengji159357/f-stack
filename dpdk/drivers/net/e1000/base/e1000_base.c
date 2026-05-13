@@ -107,7 +107,7 @@ void e1000_power_down_phy_copper_base(struct e1000_hw *hw)
 		return;
 
 	/* If the management interface is not enabled, then power down */
-	if (!(e1000_enable_mng_pass_thru(hw) || phy->ops.check_reset_block(hw)))
+	if (phy->ops.check_reset_block(hw))
 		e1000_power_down_phy_copper(hw);
 }
 
@@ -132,8 +132,7 @@ void e1000_rx_fifo_flush_base(struct e1000_hw *hw)
 	rfctl |= E1000_RFCTL_IPV6_EX_DIS;
 	E1000_WRITE_REG(hw, E1000_RFCTL, rfctl);
 
-	if (hw->mac.type != e1000_82575 ||
-	    !(E1000_READ_REG(hw, E1000_MANC) & E1000_MANC_RCV_TCO_EN))
+	if (!(E1000_READ_REG(hw, E1000_MANC) & E1000_MANC_RCV_TCO_EN))
 		return;
 
 	/* Disable all Rx queues */

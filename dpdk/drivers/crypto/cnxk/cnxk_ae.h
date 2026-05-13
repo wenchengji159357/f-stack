@@ -49,22 +49,13 @@ struct cnxk_ae_sess {
 };
 
 static __rte_always_inline void
-cnxk_ae_modex_param_normalize(uint8_t **data, size_t *len, size_t max)
+cnxk_ae_modex_param_normalize(uint8_t **data, size_t *len)
 {
-	uint8_t msw_len = *len % 8;
-	uint64_t msw_val = 0;
 	size_t i;
 
-	if (*len <= 8)
-		return;
-
-	memcpy(&msw_val, *data, msw_len);
-	if (msw_val != 0)
-		return;
-
-	for (i = msw_len; i < *len && (*len - i) < max; i += 8) {
-		memcpy(&msw_val, &(*data)[i], 8);
-		if (msw_val != 0)
+	/* Strip leading NUL bytes */
+	for (i = 0; i < *len; i++) {
+		if ((*data)[i] != 0)
 			break;
 	}
 	*data += i;
@@ -81,8 +72,8 @@ cnxk_ae_fill_modex_params(struct cnxk_ae_sess *sess,
 	uint8_t *exp = xform->modex.exponent.data;
 	uint8_t *mod = xform->modex.modulus.data;
 
-	cnxk_ae_modex_param_normalize(&mod, &mod_len, SIZE_MAX);
-	cnxk_ae_modex_param_normalize(&exp, &exp_len, mod_len);
+	cnxk_ae_modex_param_normalize(&mod, &mod_len);
+	cnxk_ae_modex_param_normalize(&exp, &exp_len);
 
 	if (unlikely(exp_len == 0 || mod_len == 0))
 		return -EINVAL;
@@ -214,22 +205,16 @@ cnxk_ae_fill_ec_params(struct cnxk_ae_sess *sess,
 		return 0;
 
 	ec->pkey.length = xform->ec.pkey.length;
-	if (ec->pkey.length > ROC_AE_EC_DATA_MAX)
-		ec->pkey.length = ROC_AE_EC_DATA_MAX;
-	if (ec->pkey.length)
-		rte_memcpy(ec->pkey.data, xform->ec.pkey.data, ec->pkey.length);
+	if (xform->ec.pkey.length)
+		rte_memcpy(ec->pkey.data, xform->ec.pkey.data, xform->ec.pkey.length);
 
 	ec->q.x.length = xform->ec.q.x.length;
-	if (ec->q.x.length > ROC_AE_EC_DATA_MAX)
-		ec->q.x.length = ROC_AE_EC_DATA_MAX;
-	if (ec->q.x.length)
-		rte_memcpy(ec->q.x.data, xform->ec.q.x.data, ec->q.x.length);
+	if (xform->ec.q.x.length)
+		rte_memcpy(ec->q.x.data, xform->ec.q.x.data, xform->ec.q.x.length);
 
 	ec->q.y.length = xform->ec.q.y.length;
-	if (ec->q.y.length > ROC_AE_EC_DATA_MAX)
-		ec->q.y.length = ROC_AE_EC_DATA_MAX;
 	if (xform->ec.q.y.length)
-		rte_memcpy(ec->q.y.data, xform->ec.q.y.data, ec->q.y.length);
+		rte_memcpy(ec->q.y.data, xform->ec.q.y.data, xform->ec.q.y.length);
 
 	return 0;
 }
@@ -297,7 +282,7 @@ cnxk_ae_modex_prep(struct rte_crypto_op *op, struct roc_ae_buf_ptr *meta_buf,
 	struct rte_crypto_mod_op_param mod_op;
 	uint64_t total_key_len;
 	union cpt_inst_w4 w4;
-	size_t base_len;
+	uint32_t base_len;
 	uint32_t dlen;
 	uint8_t *dptr;
 
@@ -305,11 +290,8 @@ cnxk_ae_modex_prep(struct rte_crypto_op *op, struct roc_ae_buf_ptr *meta_buf,
 
 	base_len = mod_op.base.length;
 	if (unlikely(base_len > mod_len)) {
-		cnxk_ae_modex_param_normalize(&mod_op.base.data, &base_len, mod_len);
-		if (base_len > mod_len) {
-			op->status = RTE_CRYPTO_OP_STATUS_INVALID_ARGS;
-			return -ENOTSUP;
-		}
+		op->status = RTE_CRYPTO_OP_STATUS_INVALID_ARGS;
+		return -ENOTSUP;
 	}
 
 	total_key_len = mod_len + exp_len;
@@ -753,11 +735,7 @@ cnxk_ae_sm2_sign_prep(struct rte_crypto_sm2_op_param *sm2,
 	uint8_t *dptr;
 
 	prime_len = ec_grp->prime.length;
-	if (prime_len > ROC_AE_EC_DATA_MAX)
-		prime_len = ROC_AE_EC_DATA_MAX;
 	order_len = ec_grp->order.length;
-	if (order_len > ROC_AE_EC_DATA_MAX)
-		order_len = ROC_AE_EC_DATA_MAX;
 
 	/* Truncate input length to curve prime length */
 	if (message_len > prime_len)
@@ -844,11 +822,7 @@ cnxk_ae_sm2_verify_prep(struct rte_crypto_sm2_op_param *sm2,
 	uint8_t *dptr;
 
 	prime_len = ec_grp->prime.length;
-	if (prime_len > ROC_AE_EC_DATA_MAX)
-		prime_len = ROC_AE_EC_DATA_MAX;
 	order_len = ec_grp->order.length;
-	if (order_len > ROC_AE_EC_DATA_MAX)
-		order_len = ROC_AE_EC_DATA_MAX;
 
 	/* Truncate input length to curve prime length */
 	if (message_len > prime_len)

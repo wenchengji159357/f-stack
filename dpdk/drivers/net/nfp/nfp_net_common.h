@@ -38,9 +38,6 @@
 
 #define NFP_BEAT_LENGTH         8
 
-/* The length of firmware version string */
-#define FW_VER_LEN        32
-
 /*
  * Each PF has corresponding word to beat:
  * Offset | Usage
@@ -100,9 +97,6 @@ struct nfp_pf_dev {
 	struct nfp_cpp_area *qc_area;
 
 	uint8_t *qc_bar;
-
-	struct nfp_cpp_area *mac_stats_area;
-	uint8_t *mac_stats_bar;
 
 	struct nfp_hwinfo *hwinfo;
 	struct nfp_rtsym_table *sym_tbl;
@@ -171,6 +165,8 @@ struct nfp_net_hw {
 
 	struct nfp_cpp *cpp;
 	struct nfp_cpp_area *ctrl_area;
+	struct nfp_cpp_area *mac_stats_area;
+	uint8_t *mac_stats_bar;
 	uint8_t *mac_stats;
 
 	/** Sequential physical port number, only valid for CoreNIC firmware */
@@ -181,9 +177,6 @@ struct nfp_net_hw {
 	struct nfp_net_tlv_caps tlv_caps;
 
 	struct nfp_net_ipsec_data *ipsec_data;
-
-	/** Used for firmware version */
-	char fw_version[FW_VER_LEN];
 };
 
 static inline uint32_t
@@ -279,11 +272,6 @@ int nfp_net_flow_ctrl_get(struct rte_eth_dev *dev,
 		struct rte_eth_fc_conf *fc_conf);
 int nfp_net_flow_ctrl_set(struct rte_eth_dev *dev,
 		struct rte_eth_fc_conf *fc_conf);
-void nfp_pf_uninit(struct nfp_pf_dev *pf_dev);
-uint32_t nfp_net_get_port_num(struct nfp_pf_dev *pf_dev,
-		struct nfp_eth_table *nfp_eth_table);
-void nfp_net_notify_port_speed(struct nfp_net_hw *hw,
-		struct rte_eth_link *link);
 
 #define NFP_PRIV_TO_APP_FW_NIC(app_fw_priv)\
 	((struct nfp_app_fw_nic *)app_fw_priv)

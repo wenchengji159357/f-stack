@@ -1664,7 +1664,6 @@ struct ixgbe_dmac_config {
 #define TN1010_PHY_ID	0x00A19410
 #define TNX_FW_REV	0xB
 #define X540_PHY_ID	0x01540200
-#define X550_PHY_ID	0x01540220
 #define X550_PHY_ID2	0x01540223
 #define X550_PHY_ID3	0x01540221
 #define X557_PHY_ID	0x01540240
@@ -1801,7 +1800,7 @@ enum {
 /* VFRE bitmask */
 #define IXGBE_VFRE_ENABLE_ALL	0xFFFFFFFF
 
-#define IXGBE_VF_INIT_TIMEOUT	10000 /* Number of retries to clear RSTI */
+#define IXGBE_VF_INIT_TIMEOUT	200 /* Number of retries to clear RSTI */
 
 /* RDHMPN and TDHMPN bitmasks */
 #define IXGBE_RDHMPN_RDICADDR		0x007FF800
@@ -3654,8 +3653,6 @@ enum ixgbe_mac_type {
 	ixgbe_mac_X550_vf,
 	ixgbe_mac_X550EM_x_vf,
 	ixgbe_mac_X550EM_a_vf,
-	ixgbe_mac_E610,
-	ixgbe_mac_E610_vf,
 	ixgbe_num_macs
 };
 

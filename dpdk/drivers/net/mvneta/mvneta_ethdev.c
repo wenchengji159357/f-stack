@@ -91,12 +91,6 @@ mvneta_ifnames_get(const char *key __rte_unused, const char *value,
 {
 	struct mvneta_ifnames *ifnames = extra_args;
 
-	if (ifnames->idx >= NETA_NUM_ETH_PPIO) {
-		MVNETA_LOG(ERR, "Too many ifnames specified (max %u)",
-			   NETA_NUM_ETH_PPIO);
-		return -EINVAL;
-	}
-
 	ifnames->names[ifnames->idx++] = value;
 
 	return 0;
@@ -204,8 +198,7 @@ mvneta_dev_supported_ptypes_get(struct rte_eth_dev *dev __rte_unused)
 		RTE_PTYPE_L3_IPV4,
 		RTE_PTYPE_L3_IPV6,
 		RTE_PTYPE_L4_TCP,
-		RTE_PTYPE_L4_UDP,
-		RTE_PTYPE_UNKNOWN
+		RTE_PTYPE_L4_UDP
 	};
 
 	return ptypes;

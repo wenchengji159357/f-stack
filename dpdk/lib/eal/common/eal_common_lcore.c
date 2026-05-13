@@ -79,7 +79,7 @@ rte_lcore_has_role(unsigned int lcore_id, enum rte_lcore_role_t role)
 	struct rte_config *cfg = rte_eal_get_configuration();
 
 	if (lcore_id >= RTE_MAX_LCORE)
-		return 0;
+		return -EINVAL;
 
 	return cfg->lcore_role[lcore_id] == role;
 }
@@ -144,11 +144,7 @@ rte_eal_cpu_init(void)
 	unsigned lcore_id;
 	unsigned count = 0;
 	unsigned int socket_id, prev_socket_id;
-#if CPU_SETSIZE > RTE_MAX_LCORE
-	int lcore_to_socket_id[CPU_SETSIZE] = {0};
-#else
-	int lcore_to_socket_id[RTE_MAX_LCORE] = {0};
-#endif
+	int lcore_to_socket_id[RTE_MAX_LCORE];
 
 	/*
 	 * Parse the maximum set of logical cores, detect the subset of running
@@ -187,12 +183,9 @@ rte_eal_cpu_init(void)
 	for (; lcore_id < CPU_SETSIZE; lcore_id++) {
 		if (eal_cpu_detected(lcore_id) == 0)
 			continue;
-		socket_id = eal_cpu_socket_id(lcore_id);
-		lcore_to_socket_id[lcore_id] = socket_id;
 		RTE_LOG(DEBUG, EAL, "Skipped lcore %u as core %u on socket %u\n",
-
 			lcore_id, eal_cpu_core_id(lcore_id),
-			socket_id);
+			eal_cpu_socket_id(lcore_id));
 	}
 
 	/* Set the count of enabled logical cores of the EAL configuration */
@@ -208,13 +201,12 @@ rte_eal_cpu_init(void)
 
 	prev_socket_id = -1;
 	config->numa_node_count = 0;
-	for (lcore_id = 0; lcore_id < RTE_DIM(lcore_to_socket_id); lcore_id++) {
+	for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++) {
 		socket_id = lcore_to_socket_id[lcore_id];
 		if (socket_id != prev_socket_id)
-			config->numa_nodes[config->numa_node_count++] =	socket_id;
+			config->numa_nodes[config->numa_node_count++] =
+					socket_id;
 		prev_socket_id = socket_id;
-		if (config->numa_node_count >= RTE_MAX_NUMA_NODES)
-			break;
 	}
 	RTE_LOG(INFO, EAL, "Detected NUMA nodes: %u\n", config->numa_node_count);
 

@@ -20,7 +20,7 @@
 #define EVENT_DMA_ADAPTER_ID_VALID_OR_ERR_RET(id, retval) \
 	do { \
 		if (!edma_adapter_valid_id(id)) { \
-			RTE_EDEV_LOG_ERR("Invalid DMA adapter id = %d", id); \
+			RTE_EDEV_LOG_ERR("Invalid DMA adapter id = %d\n", id); \
 			return retval; \
 		} \
 	} while (0)
@@ -313,7 +313,7 @@ edma_default_config_cb(uint8_t id, uint8_t evdev_id, struct rte_event_dma_adapte
 
 	ret = rte_event_dev_configure(evdev_id, &dev_conf);
 	if (ret) {
-		RTE_EDEV_LOG_ERR("Failed to configure event dev %u", evdev_id);
+		RTE_EDEV_LOG_ERR("Failed to configure event dev %u\n", evdev_id);
 		if (started) {
 			if (rte_event_dev_start(evdev_id))
 				return -EIO;
@@ -323,7 +323,7 @@ edma_default_config_cb(uint8_t id, uint8_t evdev_id, struct rte_event_dma_adapte
 
 	ret = rte_event_port_setup(evdev_id, port_id, port_conf);
 	if (ret) {
-		RTE_EDEV_LOG_ERR("Failed to setup event port %u", port_id);
+		RTE_EDEV_LOG_ERR("Failed to setup event port %u\n", port_id);
 		return ret;
 	}
 
@@ -407,7 +407,7 @@ rte_event_dma_adapter_create_ext(uint8_t id, uint8_t evdev_id,
 					       num_dma_dev * sizeof(struct dma_device_info), 0,
 					       socket_id);
 	if (adapter->dma_devs == NULL) {
-		RTE_EDEV_LOG_ERR("Failed to get memory for DMA devices");
+		RTE_EDEV_LOG_ERR("Failed to get memory for DMA devices\n");
 		edma_circular_buffer_free(&adapter->ebuf);
 		rte_free(adapter);
 		return -ENOMEM;
@@ -417,7 +417,7 @@ rte_event_dma_adapter_create_ext(uint8_t id, uint8_t evdev_id,
 	for (i = 0; i < num_dma_dev; i++) {
 		ret = rte_dma_info_get(i, &info);
 		if (ret) {
-			RTE_EDEV_LOG_ERR("Failed to get dma device info");
+			RTE_EDEV_LOG_ERR("Failed to get dma device info\n");
 			edma_circular_buffer_free(&adapter->ebuf);
 			rte_free(adapter);
 			return ret;
@@ -1004,7 +1004,7 @@ rte_event_dma_adapter_vchan_add(uint8_t id, int16_t dma_dev_id, uint16_t vchan,
 	EVENT_DMA_ADAPTER_ID_VALID_OR_ERR_RET(id, -EINVAL);
 
 	if (!rte_dma_is_valid(dma_dev_id)) {
-		RTE_EDEV_LOG_ERR("Invalid dma_dev_id = %" PRId16, dma_dev_id);
+		RTE_EDEV_LOG_ERR("Invalid dma_dev_id = %" PRIu8, dma_dev_id);
 		return -EINVAL;
 	}
 
@@ -1046,7 +1046,7 @@ rte_event_dma_adapter_vchan_add(uint8_t id, int16_t dma_dev_id, uint16_t vchan,
 							sizeof(struct dma_vchan_info),
 							0, adapter->socket_id);
 			if (dev_info->vchanq == NULL) {
-				RTE_EDEV_LOG_ERR("Queue pair add not supported");
+				printf("Queue pair add not supported\n");
 				return -ENOMEM;
 			}
 		}
@@ -1057,7 +1057,7 @@ rte_event_dma_adapter_vchan_add(uint8_t id, int16_t dma_dev_id, uint16_t vchan,
 						sizeof(struct dma_vchan_info),
 						0, adapter->socket_id);
 			if (dev_info->tqmap == NULL) {
-				RTE_EDEV_LOG_ERR("tq pair add not supported");
+				printf("tq pair add not supported\n");
 				return -ENOMEM;
 			}
 		}
@@ -1117,7 +1117,7 @@ rte_event_dma_adapter_vchan_del(uint8_t id, int16_t dma_dev_id, uint16_t vchan)
 	EVENT_DMA_ADAPTER_ID_VALID_OR_ERR_RET(id, -EINVAL);
 
 	if (!rte_dma_is_valid(dma_dev_id)) {
-		RTE_EDEV_LOG_ERR("Invalid dma_dev_id = %" PRId16, dma_dev_id);
+		RTE_EDEV_LOG_ERR("Invalid dma_dev_id = %" PRIu8, dma_dev_id);
 		return -EINVAL;
 	}
 
@@ -1275,7 +1275,7 @@ dma_adapter_cap_check(struct event_dma_adapter *adapter)
 
 	ret = rte_event_dma_adapter_caps_get(adapter->eventdev_id, adapter->next_dmadev_id, &caps);
 	if (ret) {
-		RTE_EDEV_LOG_ERR("Failed to get adapter caps dev %" PRIu8 " cdev %" PRIu16,
+		RTE_EDEV_LOG_ERR("Failed to get adapter caps dev %" PRIu8 " cdev %" PRIu8,
 				 adapter->eventdev_id, adapter->next_dmadev_id);
 		return ret;
 	}
@@ -1297,7 +1297,7 @@ rte_event_dma_adapter_runtime_params_set(uint8_t id,
 	EVENT_DMA_ADAPTER_ID_VALID_OR_ERR_RET(id, -EINVAL);
 
 	if (params == NULL) {
-		RTE_EDEV_LOG_ERR("params pointer is NULL");
+		RTE_EDEV_LOG_ERR("params pointer is NULL\n");
 		return -EINVAL;
 	}
 
@@ -1326,7 +1326,7 @@ rte_event_dma_adapter_runtime_params_get(uint8_t id,
 	EVENT_DMA_ADAPTER_ID_VALID_OR_ERR_RET(id, -EINVAL);
 
 	if (params == NULL) {
-		RTE_EDEV_LOG_ERR("params pointer is NULL");
+		RTE_EDEV_LOG_ERR("params pointer is NULL\n");
 		return -EINVAL;
 	}
 

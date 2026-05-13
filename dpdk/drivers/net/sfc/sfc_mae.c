@@ -400,8 +400,9 @@ sfc_mae_outer_rule_del(struct sfc_adapter *sa,
 	efx_mae_match_spec_fini(sa->nic, rule->match_spec);
 
 	TAILQ_REMOVE(&mae->outer_rules, rule, entries);
-	sfc_dbg(sa, "deleted outer_rule=%p", rule);
 	rte_free(rule);
+
+	sfc_dbg(sa, "deleted outer_rule=%p", rule);
 }
 
 static int
@@ -584,8 +585,9 @@ sfc_mae_mac_addr_del(struct sfc_adapter *sa, struct sfc_mae_mac_addr *mac_addr)
 	}
 
 	TAILQ_REMOVE(&mae->mac_addrs, mac_addr, entries);
-	sfc_dbg(sa, "deleted mac_addr=%p", mac_addr);
 	rte_free(mac_addr);
+
+	sfc_dbg(sa, "deleted mac_addr=%p", mac_addr);
 }
 
 enum sfc_mae_mac_addr_type {
@@ -783,10 +785,10 @@ sfc_mae_encap_header_del(struct sfc_adapter *sa,
 	}
 
 	TAILQ_REMOVE(&mae->encap_headers, encap_header, entries);
-	sfc_dbg(sa, "deleted encap_header=%p", encap_header);
-
 	rte_free(encap_header->buf);
 	rte_free(encap_header);
+
+	sfc_dbg(sa, "deleted encap_header=%p", encap_header);
 }
 
 static int
@@ -981,8 +983,9 @@ sfc_mae_counter_del(struct sfc_adapter *sa, struct sfc_mae_counter *counter)
 	}
 
 	TAILQ_REMOVE(&mae->counters, counter, entries);
-	sfc_dbg(sa, "deleted counter=%p", counter);
 	rte_free(counter);
+
+	sfc_dbg(sa, "deleted counter=%p", counter);
 }
 
 static int
@@ -1162,8 +1165,9 @@ sfc_mae_action_set_del(struct sfc_adapter *sa,
 	sfc_mae_mac_addr_del(sa, action_set->src_mac_addr);
 	sfc_mae_counter_del(sa, action_set->counter);
 	TAILQ_REMOVE(&mae->action_sets, action_set, entries);
-	sfc_dbg(sa, "deleted action_set=%p", action_set);
 	rte_free(action_set);
+
+	sfc_dbg(sa, "deleted action_set=%p", action_set);
 }
 
 static int
@@ -1346,8 +1350,8 @@ sfc_mae_action_set_list_add(struct sfc_adapter *sa,
 
 	action_set_list->action_sets =
 		rte_calloc("sfc_mae_action_set_list_action_sets",
-			   action_set_list->nb_action_sets,
-			   sizeof(struct sfc_mae_action_set *), 0);
+			   sizeof(struct sfc_mae_action_set *),
+			   action_set_list->nb_action_sets, 0);
 	if (action_set_list->action_sets == NULL) {
 		sfc_err(sa, "failed to allocate action set list");
 		rte_free(action_set_list);
@@ -1397,10 +1401,10 @@ sfc_mae_action_set_list_del(struct sfc_adapter *sa,
 		sfc_mae_action_set_del(sa, action_set_list->action_sets[i]);
 
 	TAILQ_REMOVE(&mae->action_set_lists, action_set_list, entries);
-	sfc_dbg(sa, "deleted action_set_list=%p", action_set_list);
-
 	rte_free(action_set_list->action_sets);
 	rte_free(action_set_list);
+
+	sfc_dbg(sa, "deleted action_set_list=%p", action_set_list);
 }
 
 static int
@@ -1663,8 +1667,9 @@ sfc_mae_action_rule_del(struct sfc_adapter *sa,
 	sfc_mae_outer_rule_del(sa, rule->outer_rule);
 
 	TAILQ_REMOVE(&mae->action_rules, rule, entries);
-	sfc_dbg(sa, "deleted action_rule=%p", rule);
 	rte_free(rule);
+
+	sfc_dbg(sa, "deleted action_rule=%p", rule);
 }
 
 static int

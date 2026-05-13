@@ -10,36 +10,66 @@
 static inline void
 gve_rx_refill_dqo(struct gve_rx_queue *rxq)
 {
+	volatile struct gve_rx_desc_dqo *rx_buf_ring;
 	volatile struct gve_rx_desc_dqo *rx_buf_desc;
 	struct rte_mbuf *nmb[rxq->nb_rx_hold];
 	uint16_t nb_refill = rxq->nb_rx_hold;
+	uint16_t nb_desc = rxq->nb_rx_desc;
 	uint16_t next_avail = rxq->bufq_tail;
 	struct rte_eth_dev *dev;
 	uint64_t dma_addr;
+	uint16_t delta;
 	int i;
 
 	if (rxq->nb_rx_hold < rxq->free_thresh)
 		return;
 
-	if (unlikely(rte_pktmbuf_alloc_bulk(rxq->mpool, nmb, nb_refill))) {
-		rxq->stats.no_mbufs_bulk++;
-		rxq->stats.no_mbufs += nb_refill;
-		dev = &rte_eth_devices[rxq->port_id];
-		dev->data->rx_mbuf_alloc_failed += nb_refill;
-		PMD_DRV_LOG(DEBUG, "RX mbuf alloc failed port_id=%u queue_id=%u",
-			    rxq->port_id, rxq->queue_id);
-		return;
+	rx_buf_ring = rxq->rx_ring;
+	delta = nb_desc - next_avail;
+	if (unlikely(delta < nb_refill)) {
+		if (likely(rte_pktmbuf_alloc_bulk(rxq->mpool, nmb, delta) == 0)) {
+			for (i = 0; i < delta; i++) {
+				rx_buf_desc = &rx_buf_ring[next_avail + i];
+				rxq->sw_ring[next_avail + i] = nmb[i];
+				dma_addr = rte_cpu_to_le_64(rte_mbuf_data_iova_default(nmb[i]));
+				rx_buf_desc->header_buf_addr = 0;
+				rx_buf_desc->buf_addr = dma_addr;
+			}
+			nb_refill -= delta;
+			next_avail = 0;
+			rxq->nb_rx_hold -= delta;
+		} else {
+			rxq->stats.no_mbufs_bulk++;
+			rxq->stats.no_mbufs += nb_desc - next_avail;
+			dev = &rte_eth_devices[rxq->port_id];
+			dev->data->rx_mbuf_alloc_failed += nb_desc - next_avail;
+			PMD_DRV_LOG(DEBUG, "RX mbuf alloc failed port_id=%u queue_id=%u",
+				    rxq->port_id, rxq->queue_id);
+			return;
+		}
 	}
 
-	for (i = 0; i < nb_refill; i++) {
-		rx_buf_desc = &rxq->rx_ring[next_avail];
-		rxq->sw_ring[next_avail] = nmb[i];
-		dma_addr = rte_cpu_to_le_64(rte_mbuf_data_iova_default(nmb[i]));
-		rx_buf_desc->header_buf_addr = 0;
-		rx_buf_desc->buf_addr = dma_addr;
-		next_avail = (next_avail + 1) & (rxq->nb_rx_desc - 1);
+	if (nb_desc - next_avail >= nb_refill) {
+		if (likely(rte_pktmbuf_alloc_bulk(rxq->mpool, nmb, nb_refill) == 0)) {
+			for (i = 0; i < nb_refill; i++) {
+				rx_buf_desc = &rx_buf_ring[next_avail + i];
+				rxq->sw_ring[next_avail + i] = nmb[i];
+				dma_addr = rte_cpu_to_le_64(rte_mbuf_data_iova_default(nmb[i]));
+				rx_buf_desc->header_buf_addr = 0;
+				rx_buf_desc->buf_addr = dma_addr;
+			}
+			next_avail += nb_refill;
+			rxq->nb_rx_hold -= nb_refill;
+		} else {
+			rxq->stats.no_mbufs_bulk++;
+			rxq->stats.no_mbufs += nb_desc - next_avail;
+			dev = &rte_eth_devices[rxq->port_id];
+			dev->data->rx_mbuf_alloc_failed += nb_desc - next_avail;
+			PMD_DRV_LOG(DEBUG, "RX mbuf alloc failed port_id=%u queue_id=%u",
+				    rxq->port_id, rxq->queue_id);
+		}
 	}
-	rxq->nb_rx_hold -= nb_refill;
+
 	rte_write32(next_avail, rxq->qrx_tail);
 
 	rxq->bufq_tail = next_avail;
@@ -72,8 +102,6 @@ gve_rx_burst_dqo(void *rx_queue, struct rte_mbuf **rx_pkts, uint16_t nb_pkts)
 		if (rx_desc->generation != rxq->cur_gen_bit)
 			break;
 
-		rte_io_rmb();
-
 		if (unlikely(rx_desc->rx_error)) {
 			rxq->stats.errors++;
 			continue;
@@ -99,7 +127,7 @@ gve_rx_burst_dqo(void *rx_queue, struct rte_mbuf **rx_pkts, uint16_t nb_pkts)
 		rxm->ol_flags = 0;
 
 		rxm->ol_flags |= RTE_MBUF_F_RX_RSS_HASH;
-		rxm->hash.rss = rte_le_to_cpu_32(rx_desc->hash);
+		rxm->hash.rss = rte_be_to_cpu_32(rx_desc->hash);
 
 		rx_pkts[nb_rx++] = rxm;
 		bytes += pkt_len;
@@ -107,12 +135,14 @@ gve_rx_burst_dqo(void *rx_queue, struct rte_mbuf **rx_pkts, uint16_t nb_pkts)
 
 	if (nb_rx > 0) {
 		rxq->rx_tail = rx_id;
-		rxq->next_avail = rx_id_bufq;
+		if (rx_id_bufq != rxq->next_avail)
+			rxq->next_avail = rx_id_bufq;
+
+		gve_rx_refill_dqo(rxq);
 
 		rxq->stats.packets += nb_rx;
 		rxq->stats.bytes += bytes;
 	}
-	gve_rx_refill_dqo(rxq);
 
 	return nb_rx;
 }
@@ -305,36 +335,34 @@ static int
 gve_rxq_mbufs_alloc_dqo(struct gve_rx_queue *rxq)
 {
 	struct rte_mbuf *nmb;
-	uint16_t rx_mask;
 	uint16_t i;
 	int diag;
 
-	rx_mask = rxq->nb_rx_desc - 1;
-	diag = rte_pktmbuf_alloc_bulk(rxq->mpool, &rxq->sw_ring[0],
-				      rx_mask);
+	diag = rte_pktmbuf_alloc_bulk(rxq->mpool, &rxq->sw_ring[0], rxq->nb_rx_desc);
 	if (diag < 0) {
 		rxq->stats.no_mbufs_bulk++;
-		for (i = 0; i < rx_mask; i++) {
+		for (i = 0; i < rxq->nb_rx_desc - 1; i++) {
 			nmb = rte_pktmbuf_alloc(rxq->mpool);
 			if (!nmb)
 				break;
 			rxq->sw_ring[i] = nmb;
 		}
 		if (i < rxq->nb_rx_desc - 1) {
-			rxq->stats.no_mbufs += rx_mask - i;
+			rxq->stats.no_mbufs += rxq->nb_rx_desc - 1 - i;
 			return -ENOMEM;
 		}
 	}
 
-	for (i = 0; i < rx_mask; i++) {
+	for (i = 0; i < rxq->nb_rx_desc; i++) {
+		if (i == rxq->nb_rx_desc - 1)
+			break;
 		nmb = rxq->sw_ring[i];
 		rxq->rx_ring[i].buf_addr = rte_cpu_to_le_64(rte_mbuf_data_iova_default(nmb));
 		rxq->rx_ring[i].buf_id = rte_cpu_to_le_16(i);
 	}
-	rxq->rx_ring[rx_mask].buf_id = rte_cpu_to_le_16(rx_mask);
 
 	rxq->nb_rx_hold = 0;
-	rxq->bufq_tail = rx_mask;
+	rxq->bufq_tail = rxq->nb_rx_desc - 1;
 
 	rte_write32(rxq->bufq_tail, rxq->qrx_tail);
 

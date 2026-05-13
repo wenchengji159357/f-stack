@@ -33,15 +33,9 @@ testsuite_setup(void)
 	uint8_t count;
 	count = rte_event_dev_count();
 	if (!count) {
-		int ret;
-
 		printf("Failed to find a valid event device,"
-			" trying with event_skeleton device\n");
-		ret = rte_vdev_init("event_skeleton", NULL);
-		if (ret != 0) {
-			printf("No event device, skipping\n");
-			return TEST_SKIPPED;
-		}
+			" testing with event_skeleton device\n");
+		return rte_vdev_init("event_skeleton", NULL);
 	}
 	return TEST_SUCCESS;
 }
@@ -1189,7 +1183,6 @@ test_eventdev_profile_switch(void)
 	ev.op = RTE_EVENT_OP_NEW;
 	ev.flow_id = 0;
 	ev.u64 = 0xBADF00D0;
-	ev.sched_type = RTE_SCHED_TYPE_PARALLEL;
 	rc = rte_event_enqueue_burst(TEST_DEV_ID, 0, &ev, 1);
 	TEST_ASSERT(rc == 1, "Failed to enqueue event");
 	ev.queue_id = 1;

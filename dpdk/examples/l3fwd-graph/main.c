@@ -90,7 +90,7 @@ static int pcap_trace_enable;
 
 struct lcore_rx_queue {
 	uint16_t port_id;
-	uint16_t queue_id;
+	uint8_t queue_id;
 	char node_name[RTE_NODE_NAMESIZE];
 };
 
@@ -110,8 +110,8 @@ static struct lcore_conf lcore_conf[RTE_MAX_LCORE];
 
 struct lcore_params {
 	uint16_t port_id;
-	uint16_t queue_id;
-	uint32_t lcore_id;
+	uint8_t queue_id;
+	uint8_t lcore_id;
 } __rte_cache_aligned;
 
 static struct lcore_params lcore_params_array[MAX_LCORE_PARAMS];
@@ -205,19 +205,19 @@ check_worker_model_params(void)
 static int
 check_lcore_params(void)
 {
-	uint16_t queue, i;
+	uint8_t queue, lcore;
 	int socketid;
-	uint32_t lcore;
+	uint16_t i;
 
 	for (i = 0; i < nb_lcore_params; ++i) {
 		queue = lcore_params[i].queue_id;
 		if (queue >= MAX_RX_QUEUE_PER_PORT) {
-			printf("Invalid queue number: %" PRIu16 "\n", queue);
+			printf("Invalid queue number: %hhu\n", queue);
 			return -1;
 		}
 		lcore = lcore_params[i].lcore_id;
 		if (!rte_lcore_is_enabled(lcore)) {
-			printf("Error: lcore %u is not enabled in lcore mask\n",
+			printf("Error: lcore %hhu is not enabled in lcore mask\n",
 			       lcore);
 			return -1;
 		}
@@ -228,7 +228,7 @@ check_lcore_params(void)
 		}
 		socketid = rte_lcore_to_socket_id(lcore);
 		if ((socketid != 0) && (numa_on == 0)) {
-			printf("Warning: lcore %u is on socket %d with numa off\n",
+			printf("Warning: lcore %hhu is on socket %d with numa off\n",
 			       lcore, socketid);
 		}
 	}
@@ -257,7 +257,7 @@ check_port_config(void)
 	return 0;
 }
 
-static uint16_t
+static uint8_t
 get_port_n_rx_queues(const uint16_t port)
 {
 	int queue = -1;
@@ -275,14 +275,14 @@ get_port_n_rx_queues(const uint16_t port)
 		}
 	}
 
-	return (uint16_t)(++queue);
+	return (uint8_t)(++queue);
 }
 
 static int
 init_lcore_rx_queues(void)
 {
 	uint16_t i, nb_rx_queue;
-	uint32_t lcore;
+	uint8_t lcore;
 
 	for (i = 0; i < nb_lcore_params; ++i) {
 		lcore = lcore_params[i].lcore_id;
@@ -290,7 +290,7 @@ init_lcore_rx_queues(void)
 		if (nb_rx_queue >= MAX_RX_QUEUE_PER_LCORE) {
 			printf("Error: too many queues (%u) for lcore: %u\n",
 			       (unsigned int)nb_rx_queue + 1,
-			       lcore);
+			       (unsigned int)lcore);
 			return -1;
 		}
 
@@ -448,11 +448,11 @@ parse_config(const char *q_arg)
 		}
 
 		lcore_params_array[nb_lcore_params].port_id =
-			(uint16_t)int_fld[FLD_PORT];
+			(uint8_t)int_fld[FLD_PORT];
 		lcore_params_array[nb_lcore_params].queue_id =
-			(uint16_t)int_fld[FLD_QUEUE];
+			(uint8_t)int_fld[FLD_QUEUE];
 		lcore_params_array[nb_lcore_params].lcore_id =
-			(uint32_t)int_fld[FLD_LCORE];
+			(uint8_t)int_fld[FLD_LCORE];
 		++nb_lcore_params;
 	}
 	lcore_params = lcore_params_array;
@@ -1011,8 +1011,7 @@ main(int argc, char **argv)
 		"ethdev_tx-*",
 		"pkt_drop",
 	};
-	uint8_t socketid;
-	uint16_t nb_rx_queue, queue;
+	uint8_t nb_rx_queue, queue, socketid;
 	struct rte_graph_param graph_conf;
 	struct rte_eth_dev_info dev_info;
 	uint32_t nb_ports, nb_conf = 0;

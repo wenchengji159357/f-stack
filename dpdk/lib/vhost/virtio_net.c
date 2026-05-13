@@ -1696,17 +1696,6 @@ virtio_dev_rx_packed(struct virtio_net *dev,
 	return pkt_idx;
 }
 
-static void
-virtio_dev_vring_translate(struct virtio_net *dev, struct vhost_virtqueue *vq)
-{
-	rte_rwlock_write_lock(&vq->access_lock);
-	vhost_user_iotlb_rd_lock(vq);
-	if (!vq->access_ok)
-		vring_translate(dev, vq);
-	vhost_user_iotlb_rd_unlock(vq);
-	rte_rwlock_write_unlock(&vq->access_lock);
-}
-
 static __rte_always_inline uint32_t
 virtio_dev_rx(struct virtio_net *dev, struct vhost_virtqueue *vq,
 	struct rte_mbuf **pkts, uint32_t count)
@@ -1721,13 +1710,9 @@ virtio_dev_rx(struct virtio_net *dev, struct vhost_virtqueue *vq,
 
 	vhost_user_iotlb_rd_lock(vq);
 
-	if (unlikely(!vq->access_ok)) {
-		vhost_user_iotlb_rd_unlock(vq);
-		rte_rwlock_read_unlock(&vq->access_lock);
-
-		virtio_dev_vring_translate(dev, vq);
-		goto out_no_unlock;
-	}
+	if (unlikely(!vq->access_ok))
+		if (unlikely(vring_translate(dev, vq) < 0))
+			goto out;
 
 	count = RTE_MIN((uint32_t)MAX_PKT_BURST, count);
 	if (count == 0)
@@ -1746,7 +1731,6 @@ out:
 out_access_unlock:
 	rte_rwlock_read_unlock(&vq->access_lock);
 
-out_no_unlock:
 	return nb_tx;
 }
 
@@ -1935,7 +1919,7 @@ vhost_enqueue_async_packed(struct virtio_net *dev,
 	else
 		max_tries = 1;
 
-	do {
+	while (size > 0) {
 		/*
 		 * if we tried all available ring items, and still
 		 * can't get enough buf, it means something abnormal
@@ -1962,7 +1946,7 @@ vhost_enqueue_async_packed(struct virtio_net *dev,
 		avail_idx += desc_count;
 		if (avail_idx >= vq->size)
 			avail_idx -= vq->size;
-	} while (size > 0);
+	}
 
 	if (unlikely(mbuf_to_desc(dev, vq, pkt, buf_vec, nr_vec, *nr_buffers, true) < 0))
 		return -1;
@@ -2544,13 +2528,9 @@ virtio_dev_rx_async_submit(struct virtio_net *dev, struct vhost_virtqueue *vq,
 
 	vhost_user_iotlb_rd_lock(vq);
 
-	if (unlikely(!vq->access_ok)) {
-		vhost_user_iotlb_rd_unlock(vq);
-		rte_rwlock_write_unlock(&vq->access_lock);
-
-		virtio_dev_vring_translate(dev, vq);
-		goto out_no_unlock;
-	}
+	if (unlikely(!vq->access_ok))
+		if (unlikely(vring_translate(dev, vq) < 0))
+			goto out;
 
 	count = RTE_MIN((uint32_t)MAX_PKT_BURST, count);
 	if (count == 0)
@@ -2571,7 +2551,6 @@ out:
 out_access_unlock:
 	rte_rwlock_write_unlock(&vq->access_lock);
 
-out_no_unlock:
 	return nb_tx;
 }
 
@@ -2741,9 +2720,6 @@ vhost_dequeue_offload_legacy(struct virtio_net *dev, struct virtio_net_hdr *hdr,
 	}
 
 	if (hdr->gso_type != VIRTIO_NET_HDR_GSO_NONE) {
-		if (hdr->gso_size == 0)
-			goto error;
-
 		switch (hdr->gso_type & ~VIRTIO_NET_HDR_GSO_ECN) {
 		case VIRTIO_NET_HDR_GSO_TCPV4:
 		case VIRTIO_NET_HDR_GSO_TCPV6:
@@ -2833,9 +2809,6 @@ vhost_dequeue_offload(struct virtio_net *dev, struct virtio_net_hdr *hdr,
 			 * but there's nothing we can do.
 			 */
 			uint16_t csum = 0, off;
-
-			if (hdr->csum_start >= rte_pktmbuf_pkt_len(m))
-				return;
 
 			if (rte_raw_cksum_mbuf(m, hdr->csum_start,
 					rte_pktmbuf_pkt_len(m) - hdr->csum_start, &csum) < 0)
@@ -3110,6 +3083,7 @@ virtio_dev_tx_split(struct virtio_net *dev, struct vhost_virtqueue *vq,
 {
 	uint16_t i;
 	uint16_t avail_entries;
+	uint16_t dropped = 0;
 	static bool allocerr_warned;
 
 	/*
@@ -3148,8 +3122,11 @@ virtio_dev_tx_split(struct virtio_net *dev, struct vhost_virtqueue *vq,
 
 		update_shadow_used_ring_split(vq, head_idx, 0);
 
-		if (unlikely(buf_len <= dev->vhost_hlen))
+		if (unlikely(buf_len <= dev->vhost_hlen)) {
+			dropped += 1;
+			i++;
 			break;
+		}
 
 		buf_len -= dev->vhost_hlen;
 
@@ -3166,6 +3143,8 @@ virtio_dev_tx_split(struct virtio_net *dev, struct vhost_virtqueue *vq,
 					buf_len, mbuf_pool->name);
 				allocerr_warned = true;
 			}
+			dropped += 1;
+			i++;
 			break;
 		}
 
@@ -3176,21 +3155,27 @@ virtio_dev_tx_split(struct virtio_net *dev, struct vhost_virtqueue *vq,
 				VHOST_LOG_DATA(dev->ifname, ERR, "failed to copy desc to mbuf.\n");
 				allocerr_warned = true;
 			}
+			dropped += 1;
+			i++;
 			break;
 		}
+
 	}
 
-	if (unlikely(count != i))
-		rte_pktmbuf_free_bulk(&pkts[i], count - i);
+	if (dropped)
+		rte_pktmbuf_free_bulk(&pkts[i - 1], count - i + 1);
 
+	vq->last_avail_idx += i;
+
+	do_data_copy_dequeue(vq);
+	if (unlikely(i < count))
+		vq->shadow_used_idx = i;
 	if (likely(vq->shadow_used_idx)) {
-		vq->last_avail_idx += vq->shadow_used_idx;
-		do_data_copy_dequeue(vq);
 		flush_shadow_used_ring_split(dev, vq);
 		vhost_vring_call_split(dev, vq);
 	}
 
-	return i;
+	return (i - dropped);
 }
 
 __rte_noinline
@@ -3596,15 +3581,11 @@ rte_vhost_dequeue_burst(int vid, uint16_t queue_id,
 
 	vhost_user_iotlb_rd_lock(vq);
 
-	if (unlikely(!vq->access_ok)) {
-		vhost_user_iotlb_rd_unlock(vq);
-		rte_rwlock_read_unlock(&vq->access_lock);
-
-		virtio_dev_vring_translate(dev, vq);
-
-		count = 0;
-		goto out_no_unlock;
-	}
+	if (unlikely(!vq->access_ok))
+		if (unlikely(vring_translate(dev, vq) < 0)) {
+			count = 0;
+			goto out;
+		}
 
 	/*
 	 * Construct a RARP broadcast packet, and inject it to the "pkts"
@@ -3665,7 +3646,6 @@ out_access_unlock:
 	if (unlikely(rarp_mbuf != NULL))
 		count += 1;
 
-out_no_unlock:
 	return count;
 }
 
@@ -3931,16 +3911,6 @@ virtio_dev_tx_async_single_packed(struct virtio_net *dev,
 					 buf_vec, &nr_vec, &buf_id, &buf_len,
 					 VHOST_ACCESS_RO) < 0))
 		return -1;
-
-	if (unlikely(buf_len <= dev->vhost_hlen)) {
-		if (!allocerr_warned) {
-			VHOST_LOG_DATA(dev->ifname, ERR, "Invalid buffer length.\n");
-			allocerr_warned = true;
-		}
-		return -1;
-	}
-
-	buf_len -= dev->vhost_hlen;
 
 	if (unlikely(virtio_dev_pktmbuf_prep(dev, pkts, buf_len))) {
 		if (!allocerr_warned) {
@@ -4226,14 +4196,11 @@ rte_vhost_async_try_dequeue_burst(int vid, uint16_t queue_id,
 
 	vhost_user_iotlb_rd_lock(vq);
 
-	if (unlikely(vq->access_ok == 0)) {
-		vhost_user_iotlb_rd_unlock(vq);
-		rte_rwlock_read_unlock(&vq->access_lock);
-
-		virtio_dev_vring_translate(dev, vq);
-		count = 0;
-		goto out_no_unlock;
-	}
+	if (unlikely(vq->access_ok == 0))
+		if (unlikely(vring_translate(dev, vq) < 0)) {
+			count = 0;
+			goto out;
+		}
 
 	/*
 	 * Construct a RARP broadcast packet, and inject it to the "pkts"
@@ -4299,6 +4266,5 @@ out_access_unlock:
 	if (unlikely(rarp_mbuf != NULL))
 		count += 1;
 
-out_no_unlock:
 	return count;
 }

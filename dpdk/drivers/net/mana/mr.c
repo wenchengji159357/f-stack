@@ -40,7 +40,7 @@ mana_new_pmd_mr(struct mana_mr_btree *local_tree, struct mana_priv *priv,
 	struct ibv_mr *ibv_mr;
 	struct mana_range ranges[pool->nb_mem_chunks];
 	uint32_t i;
-	struct mana_mr_cache mr;
+	struct mana_mr_cache *mr;
 	int ret;
 
 	rte_mempool_mem_iter(pool, mana_mempool_chunk_cb, ranges);
@@ -75,13 +75,14 @@ mana_new_pmd_mr(struct mana_mr_btree *local_tree, struct mana_priv *priv,
 			DP_LOG(DEBUG, "MR lkey %u addr %p len %zu",
 			       ibv_mr->lkey, ibv_mr->addr, ibv_mr->length);
 
-			mr.lkey = ibv_mr->lkey;
-			mr.addr = (uintptr_t)ibv_mr->addr;
-			mr.len = ibv_mr->length;
-			mr.verb_obj = ibv_mr;
+			mr = rte_calloc("MANA MR", 1, sizeof(*mr), 0);
+			mr->lkey = ibv_mr->lkey;
+			mr->addr = (uintptr_t)ibv_mr->addr;
+			mr->len = ibv_mr->length;
+			mr->verb_obj = ibv_mr;
 
 			rte_spinlock_lock(&priv->mr_btree_lock);
-			ret = mana_mr_btree_insert(&priv->mr_btree, &mr);
+			ret = mana_mr_btree_insert(&priv->mr_btree, mr);
 			rte_spinlock_unlock(&priv->mr_btree_lock);
 			if (ret) {
 				ibv_dereg_mr(ibv_mr);
@@ -89,7 +90,7 @@ mana_new_pmd_mr(struct mana_mr_btree *local_tree, struct mana_priv *priv,
 				return ret;
 			}
 
-			ret = mana_mr_btree_insert(local_tree, &mr);
+			ret = mana_mr_btree_insert(local_tree, mr);
 			if (ret) {
 				/* Don't need to clean up MR as it's already
 				 * in the global tree
@@ -137,12 +138,8 @@ mana_find_pmd_mr(struct mana_mr_btree *local_mr_btree, struct mana_priv *priv,
 
 try_again:
 	/* First try to find the MR in local queue tree */
-	ret = mana_mr_btree_lookup(local_mr_btree, &idx,
-				   (uintptr_t)mbuf->buf_addr, mbuf->buf_len,
-				   &mr);
-	if (ret)
-		return NULL;
-
+	mr = mana_mr_btree_lookup(local_mr_btree, &idx,
+				  (uintptr_t)mbuf->buf_addr, mbuf->buf_len);
 	if (mr) {
 		DP_LOG(DEBUG, "Local mr lkey %u addr 0x%" PRIxPTR " len %zu",
 		       mr->lkey, mr->addr, mr->len);
@@ -151,13 +148,10 @@ try_again:
 
 	/* If not found, try to find the MR in global tree */
 	rte_spinlock_lock(&priv->mr_btree_lock);
-	ret = mana_mr_btree_lookup(&priv->mr_btree, &idx,
-				   (uintptr_t)mbuf->buf_addr,
-				   mbuf->buf_len, &mr);
+	mr = mana_mr_btree_lookup(&priv->mr_btree, &idx,
+				  (uintptr_t)mbuf->buf_addr,
+				  mbuf->buf_len);
 	rte_spinlock_unlock(&priv->mr_btree_lock);
-
-	if (ret)
-		return NULL;
 
 	/* If found in the global tree, add it to the local tree */
 	if (mr) {
@@ -234,23 +228,22 @@ mana_mr_btree_expand(struct mana_mr_btree *bt, int n)
 /*
  * Look for a region of memory in MR cache.
  */
-int mana_mr_btree_lookup(struct mana_mr_btree *bt, uint16_t *idx,
-			 uintptr_t addr, size_t len,
-			 struct mana_mr_cache **cache)
+struct mana_mr_cache *
+mana_mr_btree_lookup(struct mana_mr_btree *bt, uint16_t *idx,
+		     uintptr_t addr, size_t len)
 {
 	struct mana_mr_cache *table;
 	uint16_t n;
 	uint16_t base = 0;
 	int ret;
 
-	*cache = NULL;
-
 	n = bt->len;
+
 	/* Try to double the cache if it's full */
 	if (n == bt->size) {
 		ret = mana_mr_btree_expand(bt, bt->size << 1);
 		if (ret)
-			return ret;
+			return NULL;
 	}
 
 	table = bt->table;
@@ -269,16 +262,14 @@ int mana_mr_btree_lookup(struct mana_mr_btree *bt, uint16_t *idx,
 
 	*idx = base;
 
-	if (addr + len <= table[base].addr + table[base].len) {
-		*cache = &table[base];
-		return 0;
-	}
+	if (addr + len <= table[base].addr + table[base].len)
+		return &table[base];
 
 	DP_LOG(DEBUG,
 	       "addr 0x%" PRIxPTR " len %zu idx %u sum 0x%" PRIxPTR " not found",
 	       addr, len, *idx, addr + len);
 
-	return 0;
+	return NULL;
 }
 
 int
@@ -323,21 +314,14 @@ mana_mr_btree_insert(struct mana_mr_btree *bt, struct mana_mr_cache *entry)
 	struct mana_mr_cache *table;
 	uint16_t idx = 0;
 	uint16_t shift;
-	int ret;
 
-	ret = mana_mr_btree_lookup(bt, &idx, entry->addr, entry->len, &table);
-	if (ret)
-		return ret;
-
-	if (table) {
+	if (mana_mr_btree_lookup(bt, &idx, entry->addr, entry->len)) {
 		DP_LOG(DEBUG, "Addr 0x%" PRIxPTR " len %zu exists in btree",
 		       entry->addr, entry->len);
 		return 0;
 	}
 
 	if (bt->len >= bt->size) {
-		DP_LOG(ERR, "Btree overflow detected len %u size %u",
-		       bt->len, bt->size);
 		bt->overflow = 1;
 		return -1;
 	}

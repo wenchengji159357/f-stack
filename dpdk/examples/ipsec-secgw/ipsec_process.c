@@ -336,7 +336,6 @@ ipsec_cqp_process(struct ipsec_ctx *ctx, struct ipsec_traffic *trf)
 	struct rte_ipsec_session *ss;
 	struct traffic_type *out;
 	struct rte_ipsec_group *pg;
-	const int nb_cops = RTE_DIM(trf->ipsec.pkts);
 	struct rte_crypto_op *cop[RTE_DIM(trf->ipsec.pkts)];
 	struct rte_ipsec_group grp[RTE_DIM(trf->ipsec.pkts)];
 
@@ -346,7 +345,7 @@ ipsec_cqp_process(struct ipsec_ctx *ctx, struct ipsec_traffic *trf)
 	out = &trf->ipsec;
 
 	/* dequeue completed crypto-ops */
-	n = ctx_dequeue(ctx, cop, RTE_MIN(MAX_PKT_BURST, nb_cops));
+	n = ctx_dequeue(ctx, cop, RTE_DIM(cop));
 	if (n == 0)
 		return;
 

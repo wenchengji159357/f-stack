@@ -36,10 +36,7 @@ void vmbus_br_setup(struct vmbus_br *br, void *buf, unsigned int blen)
 {
 	br->vbr = buf;
 	br->windex = br->vbr->windex;
-
-	/* The ring buffer data starts at the 2nd page of the ring buffer */
-	RTE_VERIFY(blen > rte_mem_page_size());
-	br->dsize = blen - rte_mem_page_size();
+	br->dsize = blen - sizeof(struct vmbus_bufring);
 }
 
 /*
@@ -75,7 +72,7 @@ static inline uint32_t
 vmbus_txbr_copyto(const struct vmbus_br *tbr, uint32_t windex,
 		  const void *src0, uint32_t cplen)
 {
-	uint8_t *br_data = (uint8_t *)tbr->vbr + rte_mem_page_size();
+	uint8_t *br_data = tbr->vbr->data;
 	uint32_t br_dsize = tbr->dsize;
 	const uint8_t *src = src0;
 
@@ -173,7 +170,7 @@ static inline uint32_t
 vmbus_rxbr_copyfrom(const struct vmbus_br *rbr, uint32_t rindex,
 		    void *dst0, size_t cplen)
 {
-	const uint8_t *br_data = (uint8_t *)rbr->vbr + rte_mem_page_size();
+	const uint8_t *br_data = rbr->vbr->data;
 	uint32_t br_dsize = rbr->dsize;
 	uint8_t *dst = dst0;
 

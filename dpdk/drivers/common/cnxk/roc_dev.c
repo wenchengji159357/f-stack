@@ -198,8 +198,9 @@ af_pf_wait_msg(struct dev *dev, uint16_t vf, int num_msg)
 			vf_msg = mbox_alloc_msg(&dev->mbox_vfpf_up, vf, sz);
 			if (vf_msg) {
 				mbox_req_init(MBOX_MSG_CGX_LINK_EVENT, vf_msg);
-				mbox_memcpy((uint8_t *)vf_msg + sizeof(struct mbox_msghdr), &linfo,
-					    sizeof(struct cgx_link_user_info));
+				memcpy((uint8_t *)vf_msg +
+				       sizeof(struct mbox_msghdr), &linfo,
+				       sizeof(struct cgx_link_user_info));
 
 				vf_msg->rc = msg->rc;
 				vf_msg->pcifunc = msg->pcifunc;
@@ -502,8 +503,6 @@ pf_vf_mbox_send_up_msg(struct dev *dev, void *rec_msg)
 	size_t size;
 
 	size = PLT_ALIGN(mbox_id2size(msg->hdr.id), MBOX_MSG_ALIGN);
-	if (size < sizeof(struct mbox_msghdr))
-		return;
 	/* Send UP message to all VF's */
 	for (vf = 0; vf < vf_mbox->ndevs; vf++) {
 		/* VF active */
@@ -947,8 +946,8 @@ mbox_unregister_vf_irq(struct plt_pci_device *pci_dev, struct dev *dev)
 			   RVU_VF_INT_VEC_MBOX);
 }
 
-void
-dev_mbox_unregister_irq(struct plt_pci_device *pci_dev, struct dev *dev)
+static void
+mbox_unregister_irq(struct plt_pci_device *pci_dev, struct dev *dev)
 {
 	if (dev_is_vf(dev))
 		mbox_unregister_vf_irq(pci_dev, dev);
@@ -1026,8 +1025,8 @@ roc_pf_vf_flr_irq(void *param)
 	}
 }
 
-void
-dev_vf_flr_unregister_irqs(struct plt_pci_device *pci_dev, struct dev *dev)
+static int
+vf_flr_unregister_irqs(struct plt_pci_device *pci_dev, struct dev *dev)
 {
 	struct plt_intr_handle *intr_handle = pci_dev->intr_handle;
 	int i;
@@ -1043,6 +1042,8 @@ dev_vf_flr_unregister_irqs(struct plt_pci_device *pci_dev, struct dev *dev)
 
 	dev_irq_unregister(intr_handle, roc_pf_vf_flr_irq, dev,
 			   RVU_PF_INT_VEC_VFFLR1);
+
+	return 0;
 }
 
 int
@@ -1491,7 +1492,7 @@ dev_init(struct dev *dev, struct plt_pci_device *pci_dev)
 		rc = plt_thread_create_control(&dev->sync.pfvf_msg_thread, name,
 				pf_vf_mbox_thread_main, dev);
 		if (rc != 0) {
-			plt_err("Failed to create thread for VF mbox handling");
+			plt_err("Failed to create thread for VF mbox handling\n");
 			goto thread_fail;
 		}
 	}
@@ -1527,7 +1528,7 @@ thread_fail:
 iounmap:
 	dev_vf_mbase_put(pci_dev, vf_mbase);
 mbox_unregister:
-	dev_mbox_unregister_irq(pci_dev, dev);
+	mbox_unregister_irq(pci_dev, dev);
 	if (dev->ops)
 		plt_free(dev->ops);
 mbox_fini:
@@ -1563,10 +1564,10 @@ dev_fini(struct dev *dev, struct plt_pci_device *pci_dev)
 	if (dev->lmt_mz)
 		plt_memzone_free(dev->lmt_mz);
 
-	dev_mbox_unregister_irq(pci_dev, dev);
+	mbox_unregister_irq(pci_dev, dev);
 
 	if (!dev_is_vf(dev))
-		dev_vf_flr_unregister_irqs(pci_dev, dev);
+		vf_flr_unregister_irqs(pci_dev, dev);
 	/* Release PF - VF */
 	mbox = &dev->mbox_vfpf;
 	if (mbox->hwbase && mbox->dev)

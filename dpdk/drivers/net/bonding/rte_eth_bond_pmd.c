@@ -191,7 +191,7 @@ bond_ethdev_8023ad_flow_verify(struct rte_eth_dev *bond_dev,
 	ret = rte_eth_dev_info_get(member_port, &member_info);
 	if (ret != 0) {
 		RTE_BOND_LOG(ERR,
-			"%s: Error during getting device (port %u) info: %s",
+			"%s: Error during getting device (port %u) info: %s\n",
 			__func__, member_port, strerror(-ret));
 
 		return ret;
@@ -221,7 +221,7 @@ bond_8023ad_slow_pkt_hw_filter_supported(uint16_t port_id) {
 		ret = rte_eth_dev_info_get(bond_dev->data->port_id, &bond_info);
 		if (ret != 0) {
 			RTE_BOND_LOG(ERR,
-				"%s: Error during getting device (port %u) info: %s",
+				"%s: Error during getting device (port %u) info: %s\n",
 				__func__, bond_dev->data->port_id,
 				strerror(-ret));
 
@@ -1685,26 +1685,10 @@ member_configure_slow_queue(struct rte_eth_dev *bonding_eth_dev,
 	}
 
 	if (internals->mode4.dedicated_queues.enabled == 1) {
-		struct rte_eth_dev_info member_info = {};
-		uint16_t nb_rx_desc = SLOW_RX_QUEUE_HW_DEFAULT_SIZE;
-		uint16_t nb_tx_desc = SLOW_TX_QUEUE_HW_DEFAULT_SIZE;
-
-		errval = rte_eth_dev_info_get(member_eth_dev->data->port_id,
-				&member_info);
-		if (errval != 0) {
-			RTE_BOND_LOG(ERR,
-					"rte_eth_dev_info_get: port=%d, err (%d)",
-					member_eth_dev->data->port_id,
-					errval);
-			return errval;
-		}
-
-		if (member_info.rx_desc_lim.nb_min != 0)
-			nb_rx_desc = member_info.rx_desc_lim.nb_min;
-
 		/* Configure slow Rx queue */
+
 		errval = rte_eth_rx_queue_setup(member_eth_dev->data->port_id,
-				internals->mode4.dedicated_queues.rx_qid, nb_rx_desc,
+				internals->mode4.dedicated_queues.rx_qid, 128,
 				rte_eth_dev_socket_id(member_eth_dev->data->port_id),
 				NULL, port->slow_pool);
 		if (errval != 0) {
@@ -1716,11 +1700,8 @@ member_configure_slow_queue(struct rte_eth_dev *bonding_eth_dev,
 			return errval;
 		}
 
-		if (member_info.tx_desc_lim.nb_min != 0)
-			nb_tx_desc = member_info.tx_desc_lim.nb_min;
-
 		errval = rte_eth_tx_queue_setup(member_eth_dev->data->port_id,
-				internals->mode4.dedicated_queues.tx_qid, nb_tx_desc,
+				internals->mode4.dedicated_queues.tx_qid, 512,
 				rte_eth_dev_socket_id(member_eth_dev->data->port_id),
 				NULL);
 		if (errval != 0) {
@@ -1905,13 +1886,12 @@ member_start(struct rte_eth_dev *bonding_eth_dev,
 		}
 	}
 
-	/*
-	 * If flow-isolation is not enabled, then check whether RSS is enabled for
-	 * bonding, synchronize RETA
-	 */
-	if (internals->flow_isolated_valid == 0 &&
-		(bonding_eth_dev->data->dev_conf.rxmode.mq_mode & RTE_ETH_MQ_RX_RSS)) {
+	/* If RSS is enabled for bonding, synchronize RETA */
+	if (bonding_eth_dev->data->dev_conf.rxmode.mq_mode & RTE_ETH_MQ_RX_RSS) {
 		int i;
+		struct bond_dev_private *internals;
+
+		internals = bonding_eth_dev->data->dev_private;
 
 		for (i = 0; i < internals->member_count; i++) {
 			if (internals->members[i].port_id == member_port_id) {
@@ -2309,7 +2289,7 @@ bond_ethdev_info(struct rte_eth_dev *dev, struct rte_eth_dev_info *dev_info)
 			ret = rte_eth_dev_info_get(member.port_id, &member_info);
 			if (ret != 0) {
 				RTE_BOND_LOG(ERR,
-					"%s: Error during getting device (port %u) info: %s",
+					"%s: Error during getting device (port %u) info: %s\n",
 					__func__,
 					member.port_id,
 					strerror(-ret));

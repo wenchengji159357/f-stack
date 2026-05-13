@@ -5,7 +5,6 @@
 name = 'graph'
 build = cc.has_header('sys/epoll.h')
 if not build
-    reason = 'only supported on Linux'
     subdir_done()
 endif
 

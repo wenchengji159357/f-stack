@@ -2890,7 +2890,7 @@ pipeline_spec_parse(FILE *spec,
 	}
 
 	/* Memory allocation. */
-	s = calloc(1, sizeof(struct pipeline_spec));
+	s = calloc(sizeof(struct pipeline_spec), 1);
 	if (!s) {
 		if (err_line)
 			*err_line = n_lines;
@@ -4241,7 +4241,7 @@ pipeline_iospec_parse(FILE *spec,
 	}
 
 	/* Memory allocation. */
-	s = calloc(1, sizeof(struct pipeline_iospec));
+	s = calloc(sizeof(struct pipeline_iospec), 1);
 	if (!s) {
 		if (err_line)
 			*err_line = n_lines;

@@ -134,7 +134,7 @@ octeontx_fpa_gpool_alloc(unsigned int object_size)
 
 		if (res->sz128 == 0) {
 			res->sz128 = sz128;
-			fpavf_log_dbg("gpool %d blk_sz %d", res->vf_id,
+			fpavf_log_dbg("gpool %d blk_sz %d\n", res->vf_id,
 				      sz128);
 
 			return res->vf_id;
@@ -273,7 +273,7 @@ octeontx_fpapf_pool_setup(unsigned int gpool, unsigned int buf_size,
 		goto err;
 	}
 
-	fpavf_log_dbg(" vfid %d gpool %d aid %d pool_cfg 0x%x pool_stack_base %" PRIx64 " pool_stack_end %" PRIx64" aura_cfg %" PRIx64,
+	fpavf_log_dbg(" vfid %d gpool %d aid %d pool_cfg 0x%x pool_stack_base %" PRIx64 " pool_stack_end %" PRIx64" aura_cfg %" PRIx64 "\n",
 		      fpa->vf_id, gpool, cfg.aid, (unsigned int)cfg.pool_cfg,
 		      cfg.pool_stack_base, cfg.pool_stack_end, cfg.aura_cfg);
 
@@ -351,7 +351,8 @@ octeontx_fpapf_aura_attach(unsigned int gpool_index)
 					sizeof(struct octeontx_mbox_fpa_cfg),
 					&resp, sizeof(resp));
 	if (ret < 0) {
-		fpavf_log_err("Could not attach fpa aura %d to pool %d. Err=%d. FuncErr=%d",
+		fpavf_log_err("Could not attach fpa ");
+		fpavf_log_err("aura %d to pool %d. Err=%d. FuncErr=%d\n",
 			      FPA_AURA_IDX(gpool_index), gpool_index, ret,
 			      hdr.res_code);
 		ret = -EACCES;
@@ -379,7 +380,7 @@ octeontx_fpapf_aura_detach(unsigned int gpool_index)
 	hdr.vfid = gpool_index;
 	ret = octeontx_mbox_send(&hdr, &cfg, sizeof(cfg), NULL, 0);
 	if (ret < 0) {
-		fpavf_log_err("Couldn't detach FPA aura %d Err=%d FuncErr=%d",
+		fpavf_log_err("Couldn't detach FPA aura %d Err=%d FuncErr=%d\n",
 			      FPA_AURA_IDX(gpool_index), ret,
 			      hdr.res_code);
 		ret = -EINVAL;
@@ -427,7 +428,8 @@ octeontx_fpapf_start_count(uint16_t gpool_index)
 	hdr.vfid = gpool_index;
 	ret = octeontx_mbox_send(&hdr, NULL, 0, NULL, 0);
 	if (ret < 0) {
-		fpavf_log_err("Could not start buffer counting for FPA pool %d. Err=%d. FuncErr=%d",
+		fpavf_log_err("Could not start buffer counting for ");
+		fpavf_log_err("FPA pool %d. Err=%d. FuncErr=%d\n",
 			      gpool_index, ret, hdr.res_code);
 		ret = -EINVAL;
 		goto err;
@@ -634,7 +636,7 @@ octeontx_fpa_bufpool_destroy(uintptr_t handle, int node_id)
 	cnt = fpavf_read64((void *)((uintptr_t)pool_bar +
 					FPA_VF_VHAURA_CNT(gaura)));
 	if (cnt) {
-		fpavf_log_dbg("buffer exist in pool cnt %" PRId64, cnt);
+		fpavf_log_dbg("buffer exist in pool cnt %" PRId64 "\n", cnt);
 		return -EBUSY;
 	}
 
@@ -662,7 +664,7 @@ octeontx_fpa_bufpool_destroy(uintptr_t handle, int node_id)
 				    (pool_bar + FPA_VF_VHAURA_OP_ALLOC(gaura)));
 
 		if (node == NULL) {
-			fpavf_log_err("GAURA[%u] missing %" PRIx64 " buf",
+			fpavf_log_err("GAURA[%u] missing %" PRIx64 " buf\n",
 				      gaura, avail);
 			break;
 		}
@@ -682,7 +684,7 @@ octeontx_fpa_bufpool_destroy(uintptr_t handle, int node_id)
 		curr = curr[0]) {
 		if (curr == curr[0] ||
 			((uintptr_t)curr != ((uintptr_t)curr[0] - sz))) {
-			fpavf_log_err("POOL# %u buf sequence err (%p vs. %p)",
+			fpavf_log_err("POOL# %u buf sequence err (%p vs. %p)\n",
 				      gpool, curr, curr[0]);
 		}
 	}
@@ -703,7 +705,7 @@ octeontx_fpa_bufpool_destroy(uintptr_t handle, int node_id)
 
 	ret = octeontx_fpapf_aura_detach(gpool);
 	if (ret) {
-		fpavf_log_err("Failed to detach gaura %u. error code=%d",
+		fpavf_log_err("Failed to detach gaura %u. error code=%d\n",
 			      gpool, ret);
 	}
 
@@ -755,7 +757,7 @@ octeontx_fpavf_identify(void *bar0)
 	stack_ln_ptr = fpavf_read64((void *)((uintptr_t)bar0 +
 					FPA_VF_VHPOOL_THRESHOLD(0)));
 	if (vf_idx >= FPA_VF_MAX) {
-		fpavf_log_err("vf_id(%d) greater than max vf (32)", vf_id);
+		fpavf_log_err("vf_id(%d) greater than max vf (32)\n", vf_id);
 		return -E2BIG;
 	}
 

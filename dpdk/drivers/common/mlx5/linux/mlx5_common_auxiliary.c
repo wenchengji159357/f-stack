@@ -36,17 +36,14 @@ mlx5_auxiliary_get_child_name(const char *dev, const char *node,
 		if (dent->d_name[0] != '.')
 			break;
 	}
+	closedir(dir);
 	if (dent == NULL) {
 		rte_errno = ENOENT;
-		goto end;
+		return -rte_errno;
 	}
 	if (rte_strscpy(child, dent->d_name, size) < 0)
-		goto end;
-	rte_errno = 0;
-
-end:
-	closedir(dir);
-	return -rte_errno;
+		return -rte_errno;
+	return 0;
 }
 
 static int

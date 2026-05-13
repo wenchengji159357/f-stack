@@ -153,10 +153,10 @@ static const uint32_t nfp_net_link_speed_nfp2rte[] = {
 	[NFP_NET_CFG_STS_LINK_RATE_100G]        = RTE_ETH_SPEED_NUM_100G,
 };
 
-static size_t
-nfp_net_link_speed_rte2nfp(uint32_t speed)
+static uint16_t
+nfp_net_link_speed_rte2nfp(uint16_t speed)
 {
-	size_t i;
+	uint16_t i;
 
 	for (i = 0; i < RTE_DIM(nfp_net_link_speed_nfp2rte); i++) {
 		if (speed == nfp_net_link_speed_nfp2rte[i])
@@ -166,7 +166,7 @@ nfp_net_link_speed_rte2nfp(uint32_t speed)
 	return NFP_NET_CFG_STS_LINK_RATE_UNKNOWN;
 }
 
-void
+static void
 nfp_net_notify_port_speed(struct nfp_net_hw *hw,
 		struct rte_eth_link *link)
 {
@@ -188,6 +188,9 @@ nfp_net_notify_port_speed(struct nfp_net_hw *hw,
 	nn_cfg_writew(&hw->super, NFP_NET_CFG_STS_NSP_LINK_RATE,
 			nfp_net_link_speed_rte2nfp(link->link_speed));
 }
+
+/* The length of firmware version string */
+#define FW_VER_LEN        32
 
 /**
  * Reconfigure the firmware via the mailbox
@@ -1296,7 +1299,6 @@ nfp_net_supported_ptypes_get(struct rte_eth_dev *dev)
 		RTE_PTYPE_INNER_L4_NONFRAG,
 		RTE_PTYPE_INNER_L4_ICMP,
 		RTE_PTYPE_INNER_L4_SCTP,
-		RTE_PTYPE_UNKNOWN
 	};
 
 	if (dev->rx_pkt_burst != nfp_net_recv_pkts)
@@ -1724,6 +1726,9 @@ nfp_net_rss_hash_write(struct rte_eth_dev *dev,
 	/* Configuring where to apply the RSS hash */
 	nn_cfg_writel(hw, NFP_NET_CFG_RSS_CTRL, cfg_rss_ctrl);
 
+	/* Writing the key size */
+	nn_cfg_writeb(hw, NFP_NET_CFG_RSS_KEY_SZ, rss_conf->rss_key_len);
+
 	return 0;
 }
 
@@ -1814,14 +1819,12 @@ nfp_net_rss_hash_conf_get(struct rte_eth_dev *dev,
 	rss_conf->rss_hf = rss_hf;
 
 	/* Reading the key size */
-	rss_conf->rss_key_len = NFP_NET_CFG_RSS_KEY_SZ;
+	rss_conf->rss_key_len = nn_cfg_readl(hw, NFP_NET_CFG_RSS_KEY_SZ);
 
 	/* Reading the key byte a byte */
-	if (rss_conf->rss_key != NULL) {
-		for (i = 0; i < rss_conf->rss_key_len; i++) {
-			key = nn_cfg_readb(hw, NFP_NET_CFG_RSS_KEY + i);
-			memcpy(&rss_conf->rss_key[i], &key, 1);
-		}
+	for (i = 0; i < rss_conf->rss_key_len; i++) {
+		key = nn_cfg_readb(hw, NFP_NET_CFG_RSS_KEY + i);
+		memcpy(&rss_conf->rss_key[i], &key, 1);
 	}
 
 	return 0;
@@ -2059,22 +2062,17 @@ nfp_net_firmware_version_get(struct rte_eth_dev *dev,
 		size_t fw_size)
 {
 	struct nfp_net_hw *hw;
-	char app_name[FW_VER_LEN] = {0};
-	char mip_name[FW_VER_LEN] = {0};
-	char nsp_version[FW_VER_LEN] = {0};
-	char vnic_version[FW_VER_LEN] = {0};
+	char mip_name[FW_VER_LEN];
+	char app_name[FW_VER_LEN];
+	char nsp_version[FW_VER_LEN];
+	char vnic_version[FW_VER_LEN];
 
 	if (fw_size < FW_VER_LEN)
 		return FW_VER_LEN;
 
 	hw = nfp_net_get_hw(dev);
 
-	if (hw->fw_version[0] != 0) {
-		snprintf(fw_version, FW_VER_LEN, "%s", hw->fw_version);
-		return 0;
-	}
-
-	if ((dev->data->dev_flags & RTE_ETH_DEV_REPRESENTOR) == 0) {
+	if ((dev->data->dev_flags & RTE_ETH_DEV_REPRESENTOR) != 0) {
 		snprintf(vnic_version, FW_VER_LEN, "%d.%d.%d.%d",
 			hw->ver.extend, hw->ver.class,
 			hw->ver.major, hw->ver.minor);
@@ -2086,16 +2084,8 @@ nfp_net_firmware_version_get(struct rte_eth_dev *dev,
 	nfp_net_get_mip_name(hw, mip_name);
 	nfp_net_get_app_name(hw, app_name);
 
-	if (nsp_version[0] == 0 || mip_name[0] == 0) {
-		snprintf(fw_version, FW_VER_LEN, "%s %s %s %s",
+	snprintf(fw_version, FW_VER_LEN, "%s %s %s %s",
 			vnic_version, nsp_version, mip_name, app_name);
-		return 0;
-	}
-
-	snprintf(hw->fw_version, FW_VER_LEN, "%s %s %s %s",
-			vnic_version, nsp_version, mip_name, app_name);
-
-	snprintf(fw_version, FW_VER_LEN, "%s", hw->fw_version);
 
 	return 0;
 }
@@ -2217,7 +2207,7 @@ nfp_net_pause_frame_set(struct nfp_net_hw *net_hw,
 	}
 
 	err = nfp_eth_config_commit_end(nsp);
-	if (err < 0) {
+	if (err != 0) {
 		PMD_DRV_LOG(ERR, "Failed to configure pause frame.");
 		return err;
 	}
@@ -2258,14 +2248,4 @@ nfp_net_flow_ctrl_set(struct rte_eth_dev *dev,
 	eth_port->rx_pause_enabled = (set_mode & RTE_ETH_FC_RX_PAUSE) == 0 ? false : true;
 
 	return 0;
-}
-
-uint32_t
-nfp_net_get_port_num(struct nfp_pf_dev *pf_dev,
-		struct nfp_eth_table *nfp_eth_table)
-{
-	if (pf_dev->multi_pf.enabled)
-		return 1;
-	else
-		return nfp_eth_table->count;
 }

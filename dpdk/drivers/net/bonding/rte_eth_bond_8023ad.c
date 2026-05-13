@@ -702,7 +702,7 @@ selection_logic(struct bond_dev_private *internals, uint16_t member_id)
 		ret = rte_eth_link_get_nowait(members[i], &link_info);
 		if (ret < 0) {
 			RTE_BOND_LOG(ERR,
-				"Member (port %u) link get failed: %s",
+				"Member (port %u) link get failed: %s\n",
 				members[i], rte_strerror(-ret));
 			continue;
 		}
@@ -865,6 +865,7 @@ bond_mode_8023ad_periodic_cb(void *arg)
 	struct bond_dev_private *internals = bond_dev->data->dev_private;
 	struct port *port;
 	struct rte_eth_link link_info;
+	struct rte_ether_addr member_addr;
 	struct rte_mbuf *lacp_pkt = NULL;
 	uint16_t member_id;
 	uint16_t i;
@@ -879,7 +880,7 @@ bond_mode_8023ad_periodic_cb(void *arg)
 		ret = rte_eth_link_get_nowait(member_id, &link_info);
 		if (ret < 0) {
 			RTE_BOND_LOG(ERR,
-				"Member (port %u) link get failed: %s",
+				"Member (port %u) link get failed: %s\n",
 				member_id, rte_strerror(-ret));
 		}
 
@@ -891,6 +892,7 @@ bond_mode_8023ad_periodic_cb(void *arg)
 			key = 0;
 		}
 
+		rte_eth_macaddr_get(member_id, &member_addr);
 		port = &bond_mode_8023ad_ports[member_id];
 
 		key = rte_cpu_to_be_16(key);
@@ -902,8 +904,8 @@ bond_mode_8023ad_periodic_cb(void *arg)
 			SM_FLAG_SET(port, NTT);
 		}
 
-		if (!rte_is_same_ether_addr(&internals->mode4.mac_addr, &port->actor.system)) {
-			rte_ether_addr_copy(&internals->mode4.mac_addr, &port->actor.system);
+		if (!rte_is_same_ether_addr(&port->actor.system, &member_addr)) {
+			rte_ether_addr_copy(&member_addr, &port->actor.system);
 			if (port->aggregator_port_id == member_id)
 				SM_FLAG_SET(port, NTT);
 		}
@@ -1171,20 +1173,21 @@ void
 bond_mode_8023ad_mac_address_update(struct rte_eth_dev *bond_dev)
 {
 	struct bond_dev_private *internals = bond_dev->data->dev_private;
+	struct rte_ether_addr member_addr;
 	struct port *member, *agg_member;
 	uint16_t member_id, i, j;
 
 	bond_mode_8023ad_stop(bond_dev);
 
-	rte_eth_macaddr_get(internals->port_id, &internals->mode4.mac_addr);
 	for (i = 0; i < internals->active_member_count; i++) {
 		member_id = internals->active_members[i];
 		member = &bond_mode_8023ad_ports[member_id];
+		rte_eth_macaddr_get(member_id, &member_addr);
 
-		if (rte_is_same_ether_addr(&internals->mode4.mac_addr, &member->actor.system))
+		if (rte_is_same_ether_addr(&member_addr, &member->actor.system))
 			continue;
 
-		rte_ether_addr_copy(&internals->mode4.mac_addr, &member->actor.system);
+		rte_ether_addr_copy(&member_addr, &member->actor.system);
 		/* Do nothing if this port is not an aggregator. In other case
 		 * Set NTT flag on every port that use this aggregator. */
 		if (member->aggregator_port_id != member_id)

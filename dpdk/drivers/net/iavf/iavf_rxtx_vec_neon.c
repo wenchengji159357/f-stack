@@ -391,16 +391,20 @@ iavf_recv_pkts_vec(void *__rte_restrict rx_queue,
 	return _recv_raw_pkts_vec(rx_queue, rx_pkts, nb_pkts, NULL);
 }
 
-void __rte_cold
+static void __rte_cold
 iavf_rx_queue_release_mbufs_neon(struct iavf_rx_queue *rxq)
 {
 	_iavf_rx_queue_release_mbufs_vec(rxq);
 }
 
+static const struct iavf_rxq_ops neon_vec_rxq_ops = {
+	.release_mbufs = iavf_rx_queue_release_mbufs_neon,
+};
+
 int __rte_cold
 iavf_rxq_vec_setup(struct iavf_rx_queue *rxq)
 {
-	rxq->rel_mbufs_type = IAVF_REL_MBUFS_NEON_VEC;
+	rxq->ops = &neon_vec_rxq_ops;
 	return iavf_rxq_vec_setup_default(rxq);
 }
 

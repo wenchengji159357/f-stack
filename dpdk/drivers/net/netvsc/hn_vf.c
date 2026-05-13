@@ -102,7 +102,6 @@ static void hn_remove_delayed(void *args)
 	uint16_t port_id = hv->vf_ctx.vf_port;
 	struct rte_device *dev = rte_eth_devices[port_id].device;
 	int ret;
-	bool all_eth_removed;
 
 	/* Tell VSP to switch data path to synthetic */
 	hn_vf_remove(hv);
@@ -139,17 +138,7 @@ static void hn_remove_delayed(void *args)
 		PMD_DRV_LOG(ERR, "rte_eth_dev_close failed port_id=%u ret=%d",
 			    port_id, ret);
 
-	/* Remove the rte device when all its eth devices are removed */
-	all_eth_removed = true;
-	RTE_ETH_FOREACH_DEV_OF(port_id, dev) {
-		if (rte_eth_devices[port_id].state != RTE_ETH_DEV_UNUSED) {
-			all_eth_removed = false;
-			break;
-		}
-	}
-	if (all_eth_removed)
-		ret = rte_dev_remove(dev);
-
+	ret = rte_dev_remove(dev);
 	hv->vf_ctx.vf_state = vf_removed;
 
 	rte_rwlock_write_unlock(&hv->vf_lock);
@@ -275,7 +264,7 @@ int hn_vf_add(struct rte_eth_dev *dev, struct hn_data *hv)
 			goto exit;
 		}
 
-		ret = rte_eth_dev_set_mtu(port, dev->data->mtu);
+		ret = hn_vf_mtu_set(dev, dev->data->mtu);
 		if (ret) {
 			PMD_DRV_LOG(ERR, "Failed to set VF MTU");
 			goto exit;
@@ -805,7 +794,7 @@ int hn_vf_mtu_set(struct rte_eth_dev *dev, uint16_t mtu)
 	rte_rwlock_read_lock(&hv->vf_lock);
 	vf_dev = hn_get_vf_dev(hv);
 	if (hv->vf_ctx.vf_vsc_switched && vf_dev)
-		ret = rte_eth_dev_set_mtu(vf_dev->data->port_id, mtu);
+		ret = vf_dev->dev_ops->mtu_set(vf_dev, mtu);
 	rte_rwlock_read_unlock(&hv->vf_lock);
 
 	return ret;

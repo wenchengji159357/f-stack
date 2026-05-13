@@ -84,7 +84,7 @@ struct cnxk_timesync_info {
 
 /* Inlines */
 static __rte_always_inline uint64_t
-cnxk_pktmbuf_detach(struct rte_mbuf *m, uint64_t *aura)
+cnxk_pktmbuf_detach(struct rte_mbuf *m)
 {
 	struct rte_mempool *mp = m->pool;
 	uint32_t mbuf_size, buf_len;
@@ -94,8 +94,6 @@ cnxk_pktmbuf_detach(struct rte_mbuf *m, uint64_t *aura)
 
 	/* Update refcount of direct mbuf */
 	md = rte_mbuf_from_indirect(m);
-	if (aura)
-		*aura = roc_npa_aura_handle_to_aura(md->pool->pool_id);
 	refcount = rte_mbuf_refcnt_update(md, -1);
 
 	priv_size = rte_pktmbuf_priv_size(mp);
@@ -128,18 +126,18 @@ cnxk_pktmbuf_detach(struct rte_mbuf *m, uint64_t *aura)
 }
 
 static __rte_always_inline uint64_t
-cnxk_nix_prefree_seg(struct rte_mbuf *m, uint64_t *aura)
+cnxk_nix_prefree_seg(struct rte_mbuf *m)
 {
 	if (likely(rte_mbuf_refcnt_read(m) == 1)) {
 		if (!RTE_MBUF_DIRECT(m))
-			return cnxk_pktmbuf_detach(m, aura);
+			return cnxk_pktmbuf_detach(m);
 
 		m->next = NULL;
 		m->nb_segs = 1;
 		return 0;
 	} else if (rte_mbuf_refcnt_update(m, -1) == 0) {
 		if (!RTE_MBUF_DIRECT(m))
-			return cnxk_pktmbuf_detach(m, aura);
+			return cnxk_pktmbuf_detach(m);
 
 		rte_mbuf_refcnt_set(m, 1);
 		m->next = NULL;

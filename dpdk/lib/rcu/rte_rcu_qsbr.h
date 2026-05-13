@@ -299,7 +299,7 @@ rte_rcu_qsbr_thread_online(struct rte_rcu_qsbr *v, unsigned int thread_id)
 
 	RTE_ASSERT(v != NULL && thread_id < v->max_threads);
 
-	__RTE_RCU_IS_LOCK_CNT_ZERO(v, thread_id, ERR, "Lock counter %u",
+	__RTE_RCU_IS_LOCK_CNT_ZERO(v, thread_id, ERR, "Lock counter %u\n",
 				v->qsbr_cnt[thread_id].lock_cnt);
 
 	/* Copy the current value of token.
@@ -350,7 +350,7 @@ rte_rcu_qsbr_thread_offline(struct rte_rcu_qsbr *v, unsigned int thread_id)
 {
 	RTE_ASSERT(v != NULL && thread_id < v->max_threads);
 
-	__RTE_RCU_IS_LOCK_CNT_ZERO(v, thread_id, ERR, "Lock counter %u",
+	__RTE_RCU_IS_LOCK_CNT_ZERO(v, thread_id, ERR, "Lock counter %u\n",
 				v->qsbr_cnt[thread_id].lock_cnt);
 
 	/* The reader can go offline only after the load of the
@@ -427,7 +427,7 @@ rte_rcu_qsbr_unlock(__rte_unused struct rte_rcu_qsbr *v,
 				1, rte_memory_order_release);
 
 	__RTE_RCU_IS_LOCK_CNT_ZERO(v, thread_id, WARNING,
-				"Lock counter %u. Nested locks?",
+				"Lock counter %u. Nested locks?\n",
 				v->qsbr_cnt[thread_id].lock_cnt);
 #endif
 }
@@ -481,7 +481,7 @@ rte_rcu_qsbr_quiescent(struct rte_rcu_qsbr *v, unsigned int thread_id)
 
 	RTE_ASSERT(v != NULL && thread_id < v->max_threads);
 
-	__RTE_RCU_IS_LOCK_CNT_ZERO(v, thread_id, ERR, "Lock counter %u",
+	__RTE_RCU_IS_LOCK_CNT_ZERO(v, thread_id, ERR, "Lock counter %u\n",
 				v->qsbr_cnt[thread_id].lock_cnt);
 
 	/* Acquire the changes to the shared data structure released
@@ -664,20 +664,16 @@ __rte_rcu_qsbr_check_all(struct rte_rcu_qsbr *v, uint64_t t, bool wait)
 static __rte_always_inline int
 rte_rcu_qsbr_check(struct rte_rcu_qsbr *v, uint64_t t, bool wait)
 {
-	uint64_t acked_token;
-
 	RTE_ASSERT(v != NULL);
 
 	/* Check if all the readers have already acknowledged this token */
-	acked_token = rte_atomic_load_explicit(&v->acked_token,
-						rte_memory_order_relaxed);
-	if (likely(t <= acked_token)) {
+	if (likely(t <= v->acked_token)) {
 		__RTE_RCU_DP_LOG(DEBUG,
 			"%s: check: token = %" PRIu64 ", wait = %d",
 			__func__, t, wait);
 		__RTE_RCU_DP_LOG(DEBUG,
 			"%s: status: least acked token = %" PRIu64,
-			__func__, acked_token);
+			__func__, v->acked_token);
 		return 1;
 	}
 

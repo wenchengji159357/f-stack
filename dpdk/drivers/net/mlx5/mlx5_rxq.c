@@ -420,7 +420,7 @@ mlx5_rxq_releasable(struct rte_eth_dev *dev, uint16_t idx)
 }
 
 /* Fetches and drops all SW-owned and error CQEs to synchronize CQ. */
-void
+static void
 rxq_sync_cq(struct mlx5_rxq_data *rxq)
 {
 	const uint16_t cqe_n = 1 << rxq->cqe_n;
@@ -592,13 +592,7 @@ mlx5_rx_queue_start_primary(struct rte_eth_dev *dev, uint16_t idx)
 		return ret;
 	}
 	/* Reinitialize RQ - set WQEs. */
-	ret = mlx5_rxq_initialize(rxq_data);
-	if (ret) {
-		DRV_LOG(ERR, "Port %u Rx queue %u RQ initialization failure.",
-			priv->dev_data->port_id, rxq->idx);
-		rte_errno = ENOMEM;
-		return ret;
-	}
+	mlx5_rxq_initialize(rxq_data);
 	rxq_data->err_state = MLX5_RXQ_ERR_STATE_NO_ERROR;
 	/* Set actual queue state. */
 	dev->data->rx_queue_state[idx] = RTE_ETH_QUEUE_STATE_STARTED;
@@ -661,14 +655,6 @@ mlx5_rx_queue_pre_setup(struct rte_eth_dev *dev, uint16_t idx, uint16_t *desc,
 	struct mlx5_rxq_priv *rxq;
 	bool empty;
 
-	if (*desc > mlx5_dev_get_max_wq_size(priv->sh)) {
-		DRV_LOG(ERR,
-			"port %u number of descriptors requested for Rx queue"
-			" %u is more than supported",
-			dev->data->port_id, idx);
-		rte_errno = EINVAL;
-		return -EINVAL;
-	}
 	if (!rte_is_power_of_2(*desc)) {
 		*desc = 1 << log2above(*desc);
 		DRV_LOG(WARNING,
@@ -959,7 +945,6 @@ mlx5_rx_queue_setup(struct rte_eth_dev *dev, uint16_t idx, uint16_t desc,
 	/* Join owner list. */
 	LIST_INSERT_HEAD(&rxq_ctrl->owners, rxq, owner_entry);
 	rxq->ctrl = rxq_ctrl;
-	rte_atomic_fetch_add_explicit(&rxq_ctrl->ctrl_ref, 1, rte_memory_order_relaxed);
 	mlx5_rxq_ref(dev, idx);
 	DRV_LOG(DEBUG, "port %u adding Rx queue %u to list",
 		dev->data->port_id, idx);
@@ -1043,7 +1028,6 @@ mlx5_rx_hairpin_queue_setup(struct rte_eth_dev *dev, uint16_t idx,
 		rte_errno = ENOMEM;
 		return -rte_errno;
 	}
-	rte_atomic_fetch_add_explicit(&rxq_ctrl->ctrl_ref, 1, rte_memory_order_relaxed);
 	DRV_LOG(DEBUG, "port %u adding hairpin Rx queue %u to list",
 		dev->data->port_id, idx);
 	dev->data->rx_queues[idx] = &rxq_ctrl->rxq;
@@ -1981,7 +1965,6 @@ mlx5_rxq_new(struct rte_eth_dev *dev, uint16_t idx, uint16_t desc,
 		LIST_INSERT_HEAD(&priv->sh->shared_rxqs, tmpl, share_entry);
 	}
 	LIST_INSERT_HEAD(&priv->rxqsctrl, tmpl, next);
-	rte_atomic_store_explicit(&tmpl->ctrl_ref, 1, rte_memory_order_relaxed);
 	return tmpl;
 error:
 	mlx5_mr_btree_free(&tmpl->rxq.mr_ctrl.cache_bh);
@@ -2035,7 +2018,6 @@ mlx5_rxq_hairpin_new(struct rte_eth_dev *dev, struct mlx5_rxq_priv *rxq,
 	rxq->hairpin_conf = *hairpin_conf;
 	mlx5_rxq_ref(dev, idx);
 	LIST_INSERT_HEAD(&priv->rxqsctrl, tmpl, next);
-	rte_atomic_store_explicit(&tmpl->ctrl_ref, 1, rte_memory_order_relaxed);
 	return tmpl;
 }
 
@@ -2277,7 +2259,6 @@ mlx5_rxq_release(struct rte_eth_dev *dev, uint16_t idx)
 	struct mlx5_rxq_priv *rxq;
 	struct mlx5_rxq_ctrl *rxq_ctrl;
 	uint32_t refcnt;
-	int32_t ctrl_ref;
 
 	if (priv->rxq_privs == NULL)
 		return 0;
@@ -2302,17 +2283,14 @@ mlx5_rxq_release(struct rte_eth_dev *dev, uint16_t idx)
 					RTE_ETH_QUEUE_STATE_STOPPED;
 		}
 	} else { /* Refcnt zero, closing device. */
+		LIST_REMOVE(rxq_ctrl, next);
 		LIST_REMOVE(rxq, owner_entry);
-		ctrl_ref = rte_atomic_fetch_sub_explicit(&rxq_ctrl->ctrl_ref, 1,
-							 rte_memory_order_relaxed) - 1;
-		if (ctrl_ref == 1 && LIST_EMPTY(&rxq_ctrl->owners)) {
+		if (LIST_EMPTY(&rxq_ctrl->owners)) {
 			if (!rxq_ctrl->is_hairpin)
 				mlx5_mr_btree_free
 					(&rxq_ctrl->rxq.mr_ctrl.cache_bh);
 			if (rxq_ctrl->rxq.shared)
 				LIST_REMOVE(rxq_ctrl, share_entry);
-			LIST_REMOVE(rxq_ctrl, next);
-			mlx5_free(rxq_ctrl->rxq.rq_win_data);
 			mlx5_free(rxq_ctrl);
 		}
 		dev->data->rx_queues[idx] = NULL;
@@ -2906,7 +2884,6 @@ static void
 __mlx5_hrxq_remove(struct rte_eth_dev *dev, struct mlx5_hrxq *hrxq)
 {
 	struct mlx5_priv *priv = dev->data->dev_private;
-	bool deref_rxqs = true;
 
 #ifdef HAVE_IBV_FLOW_DV_SUPPORT
 	if (hrxq->hws_flags)
@@ -2916,10 +2893,9 @@ __mlx5_hrxq_remove(struct rte_eth_dev *dev, struct mlx5_hrxq *hrxq)
 #endif
 	priv->obj_ops.hrxq_destroy(hrxq);
 	if (!hrxq->standalone) {
-		if (!dev->data->dev_started && hrxq->hws_flags &&
-		    !priv->hws_rule_flushing)
-			deref_rxqs = false;
-		mlx5_ind_table_obj_release(dev, hrxq->ind_table, deref_rxqs);
+		mlx5_ind_table_obj_release(dev, hrxq->ind_table,
+					   hrxq->hws_flags ?
+					   (!!dev->data->dev_started) : true);
 	}
 	mlx5_ipool_free(priv->sh->ipool[MLX5_IPOOL_HRXQ], hrxq->idx);
 }

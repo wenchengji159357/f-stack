@@ -1247,64 +1247,19 @@ mlx5dr_action_conv_reformat_to_verbs(uint32_t action_type,
 }
 
 static int
-mlx5dr_action_conv_root_flags_to_dv_ft(uint32_t flags,
-				       enum mlx5dv_flow_table_type *ft_type)
+mlx5dr_action_conv_flags_to_ft_type(uint32_t flags, enum mlx5dv_flow_table_type *ft_type)
 {
-	uint8_t is_rx, is_tx, is_fdb;
-
-	is_rx = !!(flags & MLX5DR_ACTION_FLAG_ROOT_RX);
-	is_tx = !!(flags & MLX5DR_ACTION_FLAG_ROOT_TX);
-	is_fdb = !!(flags & MLX5DR_ACTION_FLAG_ROOT_FDB);
-
-	if (is_rx + is_tx + is_fdb != 1) {
-		DR_LOG(ERR, "Root action flags must be converted to a single ft type");
-		rte_errno = ENOTSUP;
-		return -rte_errno;
-	}
-
-	if (is_rx) {
+	if (flags & (MLX5DR_ACTION_FLAG_ROOT_RX | MLX5DR_ACTION_FLAG_HWS_RX)) {
 		*ft_type = MLX5DV_FLOW_TABLE_TYPE_NIC_RX;
-	} else if (is_tx) {
+	} else if (flags & (MLX5DR_ACTION_FLAG_ROOT_TX | MLX5DR_ACTION_FLAG_HWS_TX)) {
 		*ft_type = MLX5DV_FLOW_TABLE_TYPE_NIC_TX;
 #ifdef HAVE_MLX5DV_FLOW_MATCHER_FT_TYPE
-	} else if (is_fdb) {
+	} else if (flags & (MLX5DR_ACTION_FLAG_ROOT_FDB | MLX5DR_ACTION_FLAG_HWS_FDB)) {
 		*ft_type = MLX5DV_FLOW_TABLE_TYPE_FDB;
 #endif
 	} else {
 		rte_errno = ENOTSUP;
-		return -rte_errno;
-	}
-
-	return 0;
-}
-
-static int
-mlx5dr_action_conv_hws_flags_to_dv_ft(uint32_t flags,
-				     enum mlx5dv_flow_table_type *ft_type)
-{
-	uint8_t is_rx, is_tx, is_fdb;
-
-	is_rx = !!(flags & MLX5DR_ACTION_FLAG_HWS_RX);
-	is_tx = !!(flags & MLX5DR_ACTION_FLAG_HWS_TX);
-	is_fdb = !!(flags & MLX5DR_ACTION_FLAG_HWS_FDB);
-
-	if (is_rx + is_tx + is_fdb != 1) {
-		DR_LOG(ERR, "Action flags must be converted to a single ft type");
-		rte_errno = ENOTSUP;
-		return -rte_errno;
-	}
-
-	if (is_rx) {
-		*ft_type = MLX5DV_FLOW_TABLE_TYPE_NIC_RX;
-	} else if (is_tx) {
-		*ft_type = MLX5DV_FLOW_TABLE_TYPE_NIC_TX;
-#ifdef HAVE_MLX5DV_FLOW_MATCHER_FT_TYPE
-	} else if (is_fdb) {
-		*ft_type = MLX5DV_FLOW_TABLE_TYPE_FDB;
-#endif
-	} else {
-		rte_errno = ENOTSUP;
-		return -rte_errno;
+		return 1;
 	}
 
 	return 0;
@@ -1321,9 +1276,9 @@ mlx5dr_action_create_reformat_root(struct mlx5dr_action *action,
 	int ret;
 
 	/* Convert action to FT type and verbs reformat type */
-	ret = mlx5dr_action_conv_root_flags_to_dv_ft(action->flags, &ft_type);
+	ret = mlx5dr_action_conv_flags_to_ft_type(action->flags, &ft_type);
 	if (ret)
-		return ret;
+		return rte_errno;
 
 	ret = mlx5dr_action_conv_reformat_to_verbs(action->type, &verb_reformat_type);
 	if (ret)
@@ -1510,9 +1465,7 @@ mlx5dr_action_handle_tunnel_l3_to_l2(struct mlx5dr_action *action,
 
 	/* Create a full modify header action list in case shared */
 	mlx5dr_action_prepare_decap_l3_actions(hdrs->sz, mh_data, &num_of_actions);
-
-	if (action->flags & MLX5DR_ACTION_FLAG_SHARED)
-		mlx5dr_action_prepare_decap_l3_data(hdrs->data, mh_data, num_of_actions);
+	mlx5dr_action_prepare_decap_l3_data(hdrs->data, mh_data, num_of_actions);
 
 	/* All DecapL3 cases require the same max arg size */
 	arg_obj = mlx5dr_arg_create_modify_header_arg(ctx,
@@ -1536,7 +1489,6 @@ mlx5dr_action_handle_tunnel_l3_to_l2(struct mlx5dr_action *action,
 
 		action[i].modify_header.max_num_of_actions = num_of_actions;
 		action[i].modify_header.num_of_actions = num_of_actions;
-		action[i].modify_header.num_of_patterns = num_of_hdrs;
 		action[i].modify_header.arg_obj = arg_obj;
 		action[i].modify_header.pat_obj = pat_obj;
 		action[i].modify_header.require_reparse =
@@ -1661,9 +1613,9 @@ mlx5dr_action_create_modify_header_root(struct mlx5dr_action *action,
 	struct ibv_context *local_ibv_ctx;
 	int ret;
 
-	ret = mlx5dr_action_conv_root_flags_to_dv_ft(action->flags, &ft_type);
+	ret = mlx5dr_action_conv_flags_to_ft_type(action->flags, &ft_type);
 	if (ret)
-		return ret;
+		return rte_errno;
 
 	local_ibv_ctx = mlx5dr_context_get_local_ibv(action->ctx);
 
@@ -2053,7 +2005,7 @@ mlx5dr_action_create_dest_root(struct mlx5dr_context *ctx,
 		return NULL;
 	}
 
-	if (mlx5dr_action_conv_hws_flags_to_dv_ft(flags, &attr.ft_type))
+	if (mlx5dr_action_conv_flags_to_ft_type(flags, &attr.ft_type))
 		return NULL;
 
 	attr.priority = priority;
@@ -2595,7 +2547,6 @@ static void mlx5dr_action_destroy_hws(struct mlx5dr_action *action)
 	case MLX5DR_ACTION_TYP_ASO_CT:
 	case MLX5DR_ACTION_TYP_PUSH_VLAN:
 	case MLX5DR_ACTION_TYP_REMOVE_HEADER:
-	case MLX5DR_ACTION_TYP_VPORT:
 		mlx5dr_action_destroy_stcs(action);
 		break;
 	case MLX5DR_ACTION_TYP_DEST_ROOT:
@@ -2649,9 +2600,6 @@ static void mlx5dr_action_destroy_hws(struct mlx5dr_action *action)
 			if (action->ipv6_route_ext.action[i])
 				mlx5dr_action_destroy(action->ipv6_route_ext.action[i]);
 		break;
-	default:
-		DR_LOG(ERR, "Not supported action type: %d", action->type);
-		assert(false);
 	}
 }
 

@@ -34,8 +34,6 @@
 
 #define ENA_REGS_ADMIN_INTR_MASK 1
 
-#define ENA_MAX_BACKOFF_DELAY_EXP 16U
-
 #define ENA_MIN_ADMIN_POLL_US 100
 
 #define ENA_MAX_ADMIN_POLL_US 5000
@@ -179,7 +177,6 @@ static int ena_com_admin_init_aenq(struct ena_com_dev *ena_dev,
 static void comp_ctxt_release(struct ena_com_admin_queue *queue,
 				     struct ena_comp_ctx *comp_ctx)
 {
-	comp_ctx->user_cqe = NULL;
 	comp_ctx->occupied = false;
 	ATOMIC32_DEC(&queue->outstanding_cmds);
 }
@@ -473,9 +470,6 @@ static void ena_com_handle_single_admin_completion(struct ena_com_admin_queue *a
 		return;
 	}
 
-	if (!comp_ctx->occupied)
-		return;
-
 	comp_ctx->status = ENA_CMD_COMPLETED;
 	comp_ctx->comp_status = cqe->acq_common_descriptor.status;
 
@@ -551,9 +545,8 @@ static int ena_com_comp_status_to_errno(struct ena_com_admin_queue *admin_queue,
 
 static void ena_delay_exponential_backoff_us(u32 exp, u32 delay_us)
 {
-	exp = ENA_MIN32(ENA_MAX_BACKOFF_DELAY_EXP, exp);
 	delay_us = ENA_MAX32(ENA_MIN_ADMIN_POLL_US, delay_us);
-	delay_us = ENA_MIN32(ENA_MAX_ADMIN_POLL_US, delay_us * (1U << exp));
+	delay_us = ENA_MIN32(delay_us * (1U << exp), ENA_MAX_ADMIN_POLL_US);
 	ENA_USLEEP(delay_us);
 }
 
@@ -3141,18 +3134,16 @@ int ena_com_allocate_debug_area(struct ena_com_dev *ena_dev,
 int ena_com_allocate_customer_metrics_buffer(struct ena_com_dev *ena_dev)
 {
 	struct ena_customer_metrics *customer_metrics = &ena_dev->customer_metrics;
-	customer_metrics->buffer_len = ENA_CUSTOMER_METRICS_BUFFER_SIZE;
-	customer_metrics->buffer_virt_addr = NULL;
 
 	ENA_MEM_ALLOC_COHERENT(ena_dev->dmadev,
 			       customer_metrics->buffer_len,
 			       customer_metrics->buffer_virt_addr,
 			       customer_metrics->buffer_dma_addr,
 			       customer_metrics->buffer_dma_handle);
-	if (unlikely(customer_metrics->buffer_virt_addr == NULL)) {
-		customer_metrics->buffer_len = 0;
+	if (unlikely(customer_metrics->buffer_virt_addr == NULL))
 		return ENA_COM_NO_MEM;
-	}
+
+	customer_metrics->buffer_len = ENA_CUSTOMER_METRICS_BUFFER_SIZE;
 
 	return 0;
 }

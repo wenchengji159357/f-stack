@@ -111,10 +111,8 @@ cperf_verify_op(struct rte_crypto_op *op,
 	uint32_t len;
 	uint16_t nb_segs;
 	uint8_t *data;
-	uint32_t cipher_offset, auth_offset = 0;
-	bool cipher = false;
-	bool digest_verify = false;
-	bool is_encrypt = false;
+	uint32_t cipher_offset, auth_offset;
+	uint8_t	cipher, auth;
 	int res = 0;
 
 	if (op->status != RTE_CRYPTO_OP_STATUS_SUCCESS)
@@ -152,54 +150,57 @@ cperf_verify_op(struct rte_crypto_op *op,
 
 	switch (options->op_type) {
 	case CPERF_CIPHER_ONLY:
-		cipher = true;
+		cipher = 1;
 		cipher_offset = 0;
-		is_encrypt = options->cipher_op == RTE_CRYPTO_CIPHER_OP_ENCRYPT;
-		break;
-	case CPERF_AUTH_ONLY:
-		cipher_offset = 0;
-		if (options->auth_op == RTE_CRYPTO_AUTH_OP_GENERATE) {
-			auth_offset = options->test_buffer_size;
-			digest_verify = true;
-		}
+		auth = 0;
+		auth_offset = 0;
 		break;
 	case CPERF_CIPHER_THEN_AUTH:
-	case CPERF_AUTH_THEN_CIPHER:
-		cipher = true;
+		cipher = 1;
 		cipher_offset = 0;
-		if (options->cipher_op == RTE_CRYPTO_CIPHER_OP_ENCRYPT) {
-			auth_offset = options->test_buffer_size;
-			digest_verify = true;
-			is_encrypt = true;
-		}
+		auth = 1;
+		auth_offset = options->test_buffer_size;
+		break;
+	case CPERF_AUTH_ONLY:
+		cipher = 0;
+		cipher_offset = 0;
+		auth = 1;
+		auth_offset = options->test_buffer_size;
+		break;
+	case CPERF_AUTH_THEN_CIPHER:
+		cipher = 1;
+		cipher_offset = 0;
+		auth = 1;
+		auth_offset = options->test_buffer_size;
 		break;
 	case CPERF_AEAD:
-		cipher = true;
+		cipher = 1;
 		cipher_offset = 0;
-		if (options->aead_op == RTE_CRYPTO_AEAD_OP_ENCRYPT) {
-			auth_offset = options->test_buffer_size;
-			digest_verify = true;
-			is_encrypt = true;
-		}
+		auth = 1;
+		auth_offset = options->test_buffer_size;
 		break;
 	default:
 		res = 1;
 		goto out;
 	}
 
-	if (cipher) {
-		if (is_encrypt)
-			res += !!memcmp(data + cipher_offset,
+	if (cipher == 1) {
+		if (options->cipher_op == RTE_CRYPTO_CIPHER_OP_ENCRYPT)
+			res += memcmp(data + cipher_offset,
 					vector->ciphertext.data,
 					options->test_buffer_size);
 		else
-			res += !!memcmp(data + cipher_offset,
+			res += memcmp(data + cipher_offset,
 					vector->plaintext.data,
 					options->test_buffer_size);
 	}
 
-	if (digest_verify)
-		res += !!memcmp(data + auth_offset, vector->digest.data, options->digest_sz);
+	if (auth == 1) {
+		if (options->auth_op == RTE_CRYPTO_AUTH_OP_GENERATE)
+			res += memcmp(data + auth_offset,
+					vector->digest.data,
+					options->digest_sz);
+	}
 
 out:
 	rte_free(data);
@@ -275,6 +276,7 @@ cperf_verify_test_runner(void *test_ctx)
 				ops_needed, ctx->sess, ctx->options,
 				ctx->test_vector, iv_offset, &imix_idx, NULL);
 
+
 		/* Populate the mbuf with the test vector, for verification */
 		for (i = 0; i < ops_needed; i++)
 			cperf_mbuf_set(ops[i]->sym->m_src,
@@ -291,17 +293,6 @@ cperf_verify_test_runner(void *test_ctx)
 				rte_pktmbuf_linearize(ops[i]->sym->m_src);
 		}
 #endif /* CPERF_LINEARIZATION_ENABLE */
-
-		/**
-		 * When ops_needed is smaller than ops_enqd, the
-		 * unused ops need to be moved to the front for
-		 * next round use.
-		 */
-		if (unlikely(ops_enqd > ops_needed)) {
-			size_t nb_b_to_mov = ops_unused * sizeof(struct rte_crypto_op *);
-
-			memmove(&ops[ops_needed], &ops[ops_enqd], nb_b_to_mov);
-		}
 
 		/* Enqueue burst of ops on crypto device */
 		ops_enqd = rte_cryptodev_enqueue_burst(ctx->dev_id, ctx->qp_id,

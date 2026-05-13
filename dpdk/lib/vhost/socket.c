@@ -93,7 +93,6 @@ static struct vhost_user vhost_user = {
 		.fd = { [0 ... MAX_FDS - 1] = {-1, NULL, NULL, NULL, 0} },
 		.fd_mutex = PTHREAD_MUTEX_INITIALIZER,
 		.fd_pooling_mutex = PTHREAD_MUTEX_INITIALIZER,
-		.sync_mutex = PTHREAD_MUTEX_INITIALIZER,
 		.num = 0
 	},
 	.vsocket_cnt = 0,
@@ -849,30 +848,18 @@ rte_vhost_driver_set_max_queue_num(const char *path, uint32_t max_queue_pairs)
 	struct vhost_user_socket *vsocket;
 	int ret = 0;
 
+	VHOST_LOG_CONFIG(path, INFO, "Setting max queue pairs to %u\n", max_queue_pairs);
+
+	if (max_queue_pairs > VHOST_MAX_QUEUE_PAIRS) {
+		VHOST_LOG_CONFIG(path, ERR, "Library only supports up to %u queue pairs\n",
+				VHOST_MAX_QUEUE_PAIRS);
+		return -1;
+	}
+
 	pthread_mutex_lock(&vhost_user.mutex);
 	vsocket = find_vhost_user_socket(path);
 	if (!vsocket) {
 		VHOST_LOG_CONFIG(path, ERR, "socket file is not registered yet.\n");
-		ret = -1;
-		goto unlock_exit;
-	}
-
-	/*
-	 * This is only useful for VDUSE for which number of virtqueues is set
-	 * by the backend. For Vhost-user, the number of virtqueues is defined
-	 * by the frontend.
-	 */
-	if (!vsocket->is_vduse) {
-		VHOST_LOG_CONFIG(path, DEBUG, "Keeping %u max queue pairs for Vhost-user backend\n",
-				 VHOST_MAX_QUEUE_PAIRS);
-		goto unlock_exit;
-	}
-
-	VHOST_LOG_CONFIG(path, INFO, "Setting max queue pairs to %u", max_queue_pairs);
-
-	if (max_queue_pairs > VHOST_MAX_QUEUE_PAIRS) {
-		VHOST_LOG_CONFIG(path, ERR, "Library only supports up to %u queue pairs",
-				VHOST_MAX_QUEUE_PAIRS);
 		ret = -1;
 		goto unlock_exit;
 	}

@@ -56,7 +56,7 @@
 #define TXGBE_5TUPLE_MAX_PRI            7
 #define TXGBE_5TUPLE_MIN_PRI            1
 
-#define TXGBE_MAX_MTU			9414
+
 /* The overhead from MTU to max frame size. */
 #define TXGBE_ETH_OVERHEAD (RTE_ETHER_HDR_LEN + RTE_ETHER_CRC_LEN)
 
@@ -90,7 +90,8 @@ struct txgbe_hw_fdir_mask {
 	uint16_t dst_port_mask;
 	uint16_t flex_bytes_mask;
 	uint8_t  mac_addr_byte_mask;
-	uint8_t  pkt_type_mask; /* reversed mask for hw */
+	uint32_t tunnel_id_mask;
+	uint8_t  tunnel_type_mask;
 };
 
 struct txgbe_fdir_filter {
@@ -114,13 +115,11 @@ struct txgbe_fdir_rule {
 	uint32_t soft_id; /* an unique value for this rule */
 	uint8_t queue; /* assigned rx queue */
 	uint8_t flex_bytes_offset;
-	bool flex_relative;
 };
 
 struct txgbe_hw_fdir_info {
 	struct txgbe_hw_fdir_mask mask;
 	uint8_t     flex_bytes_offset;
-	bool        flex_relative;
 	uint16_t    collision;
 	uint16_t    free;
 	uint16_t    maxhash;
@@ -553,9 +552,8 @@ void txgbe_set_ivar_map(struct txgbe_hw *hw, int8_t direction,
  */
 int txgbe_fdir_configure(struct rte_eth_dev *dev);
 int txgbe_fdir_set_input_mask(struct rte_eth_dev *dev);
-uint16_t txgbe_fdir_get_flex_base(struct txgbe_fdir_rule *rule);
 int txgbe_fdir_set_flexbytes_offset(struct rte_eth_dev *dev,
-				    uint16_t offset, uint16_t flex_base);
+				    uint16_t offset);
 int txgbe_fdir_filter_program(struct rte_eth_dev *dev,
 			      struct txgbe_fdir_rule *rule,
 			      bool del, bool update);

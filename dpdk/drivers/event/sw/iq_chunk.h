@@ -9,6 +9,8 @@
 #include <stdbool.h>
 #include <rte_eventdev.h>
 
+#define IQ_ROB_NAMESIZE 12
+
 struct sw_queue_chunk {
 	struct rte_event events[SW_EVS_PER_Q_CHUNK];
 	struct sw_queue_chunk *next;

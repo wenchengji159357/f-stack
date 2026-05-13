@@ -93,6 +93,7 @@ struct interface {
 	struct rte_bpf_prm *bpf_prm;
 	char name[RTE_ETH_NAME_MAX_LEN];
 
+	struct rte_rxtx_callback *rx_cb[RTE_MAX_QUEUES_PER_PORT];
 	const char *ifname;
 	const char *ifdescr;
 };
@@ -627,11 +628,6 @@ static void dpdk_init(void)
 		eal_argv[i++] = strdup(file_prefix);
 	}
 
-	for (i = 0; i < (unsigned int)eal_argc; i++) {
-		if (eal_argv[i] == NULL)
-			rte_panic("No memory\n");
-	}
-
 	if (rte_eal_init(eal_argc, eal_argv) < 0)
 		rte_exit(EXIT_FAILURE, "EAL init failed: is primary process running?\n");
 }
@@ -873,7 +869,7 @@ static ssize_t
 pcap_write_packets(pcap_dumper_t *dumper,
 		   struct rte_mbuf *pkts[], uint16_t n)
 {
-	uint8_t temp_data[RTE_ETHER_MAX_JUMBO_FRAME_LEN];
+	uint8_t temp_data[RTE_MBUF_DEFAULT_BUF_SIZE];
 	struct pcap_pkthdr header;
 	uint16_t i;
 	size_t total = 0;
@@ -882,19 +878,14 @@ pcap_write_packets(pcap_dumper_t *dumper,
 
 	for (i = 0; i < n; i++) {
 		struct rte_mbuf *m = pkts[i];
-		size_t len, caplen;
 
-		len = caplen = rte_pktmbuf_pkt_len(m);
-		if (unlikely(!rte_pktmbuf_is_contiguous(m) && len > sizeof(temp_data)))
-			caplen = sizeof(temp_data);
-
-		header.len = len;
-		header.caplen = caplen;
+		header.len = rte_pktmbuf_pkt_len(m);
+		header.caplen = RTE_MIN(header.len, sizeof(temp_data));
 
 		pcap_dump((u_char *)dumper, &header,
-			  rte_pktmbuf_read(m, 0, caplen, temp_data));
+			  rte_pktmbuf_read(m, 0, header.caplen, temp_data));
 
-		total += sizeof(header) + caplen;
+		total += sizeof(header) + header.len;
 	}
 
 	return total;
@@ -943,11 +934,6 @@ int main(int argc, char **argv)
 {
 	struct rte_ring *r;
 	struct rte_mempool *mp;
-	struct sigaction action = {
-		.sa_flags = SA_RESTART,
-		.sa_handler = signal_handler,
-	};
-	struct sigaction origaction;
 	dumpcap_out_t out;
 	char *p;
 
@@ -973,13 +959,8 @@ int main(int argc, char **argv)
 
 	compile_filters();
 
-	sigemptyset(&action.sa_mask);
-	sigaction(SIGTERM, &action, NULL);
-	sigaction(SIGINT, &action, NULL);
-	sigaction(SIGPIPE, &action, NULL);
-	sigaction(SIGHUP, NULL, &origaction);
-	if (origaction.sa_handler == SIG_DFL)
-		sigaction(SIGHUP, &action, NULL);
+	signal(SIGINT, signal_handler);
+	signal(SIGPIPE, SIG_IGN);
 
 	enable_primary_monitor();
 

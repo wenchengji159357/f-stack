@@ -380,7 +380,7 @@ hns3_interrupt_handler(void *param)
 		hns3_warn(hw, "received reset interrupt");
 		hns3_schedule_reset(hns);
 	} else if (event_cause == HNS3_VECTOR0_EVENT_MBX) {
-		hns3pf_handle_mbx_msg(hw);
+		hns3_dev_handle_mbx_msg(hw);
 	} else if (event_cause != HNS3_VECTOR0_EVENT_PTP) {
 		hns3_warn(hw, "received unknown event: vector0_int_stat:0x%x "
 			  "ras_int_stat:0x%x cmdq_int_stat:0x%x",
@@ -2544,10 +2544,6 @@ hns3_query_pf_resource(struct hns3_hw *hw)
 	req = (struct hns3_pf_res_cmd *)desc.data;
 	hw->total_tqps_num = rte_le_to_cpu_16(req->tqp_num) +
 			     rte_le_to_cpu_16(req->ext_tqp_num);
-	if (hw->total_tqps_num == 0) {
-		PMD_INIT_LOG(ERR, "the total tqp number of the port is 0.");
-		return -EINVAL;
-	}
 	ret = hns3_get_pf_max_tqp_num(hw);
 	if (ret)
 		return ret;
@@ -2742,8 +2738,6 @@ hns3_get_capability(struct hns3_hw *hw)
 		hw->rss_info.ipv6_sctp_offload_supported = false;
 		hw->udp_cksum_mode = HNS3_SPECIAL_PORT_SW_CKSUM_MODE;
 		pf->support_multi_tc_pause = false;
-		hw->rx_dma_addr_align = HNS3_RX_DMA_ADDR_ALIGN_64;
-		hw->strip_crc_ptype = HNS3_STRIP_CRC_PTYPE_TCP;
 		return 0;
 	}
 
@@ -2764,8 +2758,6 @@ hns3_get_capability(struct hns3_hw *hw)
 	hw->rss_info.ipv6_sctp_offload_supported = true;
 	hw->udp_cksum_mode = HNS3_SPECIAL_PORT_HW_CKSUM_MODE;
 	pf->support_multi_tc_pause = true;
-	hw->rx_dma_addr_align = HNS3_RX_DMA_ADDR_ALIGN_128;
-	hw->strip_crc_ptype = HNS3_STRIP_CRC_PTYPE_IP;
 
 	return 0;
 }
@@ -2801,7 +2793,6 @@ hns3_check_media_type(struct hns3_hw *hw, uint8_t media_type)
 static int
 hns3_get_board_configuration(struct hns3_hw *hw)
 {
-#define HNS3_RSS_SIZE_MAX_DEFAULT	64
 	struct hns3_adapter *hns = HNS3_DEV_HW_TO_ADAPTER(hw);
 	struct hns3_pf *pf = &hns->pf;
 	struct hns3_cfg cfg;
@@ -2820,11 +2811,6 @@ hns3_get_board_configuration(struct hns3_hw *hw)
 
 	hw->mac.media_type = cfg.media_type;
 	hw->rss_size_max = cfg.rss_size_max;
-	if (hw->rss_size_max == 0) {
-		PMD_INIT_LOG(WARNING, "rss_size_max is 0, already adjust to %u.",
-			     HNS3_RSS_SIZE_MAX_DEFAULT);
-		hw->rss_size_max = HNS3_RSS_SIZE_MAX_DEFAULT;
-	}
 	memcpy(hw->mac.mac_addr, cfg.mac_addr, RTE_ETHER_ADDR_LEN);
 	hw->mac.phy_addr = cfg.phy_addr;
 	hw->dcb_info.num_pg = 1;
@@ -4864,7 +4850,7 @@ hns3_get_link_duplex(uint32_t link_speeds)
 }
 
 static int
-hns3_copper_port_link_speed_cfg(struct hns3_hw *hw,
+hns3_set_copper_port_link_speed(struct hns3_hw *hw,
 				struct hns3_set_link_speed_cfg *cfg)
 {
 	struct hns3_cmd_desc desc[HNS3_PHY_PARAM_CFG_BD_NUM];
@@ -4896,33 +4882,6 @@ hns3_copper_port_link_speed_cfg(struct hns3_hw *hw,
 	}
 
 	return hns3_cmd_send(hw, desc, HNS3_PHY_PARAM_CFG_BD_NUM);
-}
-
-static int
-hns3_set_copper_port_link_speed(struct hns3_hw *hw,
-				struct hns3_set_link_speed_cfg *cfg)
-{
-#define HNS3_PHY_PARAM_CFG_RETRY_TIMES		10
-#define HNS3_PHY_PARAM_CFG_RETRY_DELAY_MS	100
-	uint32_t retry_cnt = 0;
-	int ret;
-
-	/*
-	 * The initialization of copper port contains the following two steps.
-	 * 1. Configure firmware takeover the PHY. The firmware will start an
-	 *    asynchronous task to initialize the PHY chip.
-	 * 2. Configure work speed and duplex.
-	 * In earlier versions of the firmware, when the asynchronous task is not
-	 * finished, the firmware will return -ENOTBLK in the second step. And this
-	 * will lead to driver failed to initialize. Here add retry for this case.
-	 */
-	ret = hns3_copper_port_link_speed_cfg(hw, cfg);
-	while (ret == -ENOTBLK && retry_cnt++ < HNS3_PHY_PARAM_CFG_RETRY_TIMES) {
-		rte_delay_ms(HNS3_PHY_PARAM_CFG_RETRY_DELAY_MS);
-		ret = hns3_copper_port_link_speed_cfg(hw, cfg);
-	}
-
-	return ret;
 }
 
 static int
@@ -5134,7 +5093,7 @@ hns3_dev_start(struct rte_eth_dev *dev)
 	 */
 	ret = hns3_start_all_txqs(dev);
 	if (ret)
-		goto start_all_txqs_fail;
+		goto map_rx_inter_err;
 
 	ret = hns3_start_all_rxqs(dev);
 	if (ret)
@@ -5167,8 +5126,6 @@ hns3_dev_start(struct rte_eth_dev *dev)
 
 start_all_rxqs_fail:
 	hns3_stop_all_txqs(dev);
-start_all_txqs_fail:
-	hns3_unmap_rx_interrupt(dev);
 map_rx_inter_err:
 	(void)hns3_do_stop(hns);
 do_start_fail:
@@ -5221,23 +5178,20 @@ hns3_dev_stop(struct rte_eth_dev *dev)
 	struct hns3_hw *hw = &hns->hw;
 
 	PMD_INIT_FUNC_TRACE();
-	if (rte_atomic_load_explicit(&hw->reset.resetting, rte_memory_order_relaxed) != 0) {
-		hns3_warn(hw, "device is resetting, stop operation is not allowed.");
-		return -EBUSY;
-	}
-
 	dev->data->dev_started = 0;
 
 	hw->adapter_state = HNS3_NIC_STOPPING;
 	hns3_stop_rxtx_datapath(dev);
 
 	rte_spinlock_lock(&hw->lock);
-	hns3_tm_dev_stop_proc(hw);
-	hns3_config_mac_tnl_int(hw, false);
-	hns3_stop_tqps(hw);
-	hns3_do_stop(hns);
-	hns3_unmap_rx_interrupt(dev);
-	hw->adapter_state = HNS3_NIC_CONFIGURED;
+	if (__atomic_load_n(&hw->reset.resetting, __ATOMIC_RELAXED) == 0) {
+		hns3_tm_dev_stop_proc(hw);
+		hns3_config_mac_tnl_int(hw, false);
+		hns3_stop_tqps(hw);
+		hns3_do_stop(hns);
+		hns3_unmap_rx_interrupt(dev);
+		hw->adapter_state = HNS3_NIC_CONFIGURED;
+	}
 	hns3_rx_scattered_reset(dev);
 	rte_eal_alarm_cancel(hns3_service_handler, dev);
 	hns3_stop_report_lse(dev);
@@ -5326,18 +5280,18 @@ hns3_get_current_fc_mode(struct rte_eth_dev *dev)
 	struct hns3_mac *mac = &hw->mac;
 
 	/*
+	 * When the flow control mode is obtained, the device may not complete
+	 * auto-negotiation. It is necessary to wait for link establishment.
+	 */
+	(void)hns3_dev_link_update(dev, 1);
+
+	/*
 	 * If the link auto-negotiation of the nic is disabled, or the flow
 	 * control auto-negotiation is not supported, the forced flow control
 	 * mode is used.
 	 */
 	if (mac->link_autoneg == 0 || !pf->support_fc_autoneg)
 		return hw->requested_fc_mode;
-
-	/*
-	 * When the flow control mode is obtained, the device may not complete
-	 * auto-negotiation. It is necessary to wait for link establishment.
-	 */
-	(void)hns3_dev_link_update(dev, 1);
 
 	return hns3_get_autoneg_fc_mode(hw);
 }
@@ -5591,14 +5545,28 @@ is_pf_reset_done(struct hns3_hw *hw)
 static enum hns3_reset_level
 hns3_detect_reset_event(struct hns3_hw *hw)
 {
+	struct hns3_adapter *hns = HNS3_DEV_HW_TO_ADAPTER(hw);
 	enum hns3_reset_level new_req = HNS3_NONE_RESET;
+	enum hns3_reset_level last_req;
 	uint32_t vector0_intr_state;
 
+	last_req = hns3_get_reset_level(hns, &hw->reset.pending);
 	vector0_intr_state = hns3_read_dev(hw, HNS3_VECTOR0_OTHER_INT_STS_REG);
-	if (BIT(HNS3_VECTOR0_IMPRESET_INT_B) & vector0_intr_state)
+	if (BIT(HNS3_VECTOR0_IMPRESET_INT_B) & vector0_intr_state) {
+		__atomic_store_n(&hw->reset.disable_cmd, 1, __ATOMIC_RELAXED);
 		new_req = HNS3_IMP_RESET;
-	else if (BIT(HNS3_VECTOR0_GLOBALRESET_INT_B) & vector0_intr_state)
+	} else if (BIT(HNS3_VECTOR0_GLOBALRESET_INT_B) & vector0_intr_state) {
+		__atomic_store_n(&hw->reset.disable_cmd, 1, __ATOMIC_RELAXED);
 		new_req = HNS3_GLOBAL_RESET;
+	}
+
+	if (new_req == HNS3_NONE_RESET)
+		return HNS3_NONE_RESET;
+
+	if (last_req == HNS3_NONE_RESET || last_req < new_req) {
+		hns3_schedule_delayed_reset(hns);
+		hns3_warn(hw, "High level reset detected, delay do reset");
+	}
 
 	return new_req;
 }
@@ -5618,14 +5586,10 @@ hns3_is_reset_pending(struct hns3_adapter *hns)
 		return false;
 
 	new_req = hns3_detect_reset_event(hw);
-	if (new_req == HNS3_NONE_RESET)
-		return false;
-
 	last_req = hns3_get_reset_level(hns, &hw->reset.pending);
-	if (last_req == HNS3_NONE_RESET || last_req < new_req) {
-		__atomic_store_n(&hw->reset.disable_cmd, 1, __ATOMIC_RELAXED);
-		hns3_schedule_delayed_reset(hns);
-		hns3_warn(hw, "High level reset detected, delay do reset");
+	if (last_req != HNS3_NONE_RESET && new_req != HNS3_NONE_RESET &&
+	    new_req < last_req) {
+		hns3_warn(hw, "High level reset %d is pending", last_req);
 		return true;
 	}
 	last_req = hns3_get_reset_level(hns, &hw->reset.request);
@@ -6090,7 +6054,7 @@ hns3_fec_get_internal(struct hns3_hw *hw, uint32_t *fec_capa)
 {
 	struct hns3_sfp_info_cmd *resp;
 	uint32_t tmp_fec_capa;
-	uint8_t auto_state = 0;
+	uint8_t auto_state;
 	struct hns3_cmd_desc desc;
 	int ret;
 
@@ -6711,8 +6675,7 @@ RTE_PMD_REGISTER_PARAM_STRING(net_hns3,
 		HNS3_DEVARG_RX_FUNC_HINT "=vec|sve|simple|common "
 		HNS3_DEVARG_TX_FUNC_HINT "=vec|sve|simple|common "
 		HNS3_DEVARG_DEV_CAPS_MASK "=<1-65535> "
-		HNS3_DEVARG_MBX_TIME_LIMIT_MS "=<uint16> "
-		HNS3_DEVARG_FDIR_VLAN_MATCH_MODE "=strict|nostrict ");
+		HNS3_DEVARG_MBX_TIME_LIMIT_MS "=<uint16> ");
 RTE_LOG_REGISTER_SUFFIX(hns3_logtype_init, init, NOTICE);
 RTE_LOG_REGISTER_SUFFIX(hns3_logtype_driver, driver, NOTICE);
 #ifdef RTE_ETHDEV_DEBUG_RX

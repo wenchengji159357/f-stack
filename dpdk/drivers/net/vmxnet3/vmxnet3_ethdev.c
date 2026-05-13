@@ -257,7 +257,6 @@ vmxnet3_disable_all_intrs(struct vmxnet3_hw *hw)
 		vmxnet3_disable_intr(hw, i);
 }
 
-#ifndef RTE_EXEC_ENV_FREEBSD
 /*
  * Enable all intrs used by the device
  */
@@ -281,7 +280,6 @@ vmxnet3_enable_all_intrs(struct vmxnet3_hw *hw)
 			vmxnet3_enable_intr(hw, i);
 	}
 }
-#endif
 
 /*
  * Gets tx data ring descriptor size.
@@ -402,7 +400,6 @@ eth_vmxnet3_dev_init(struct rte_eth_dev *eth_dev)
 	/* Vendor and Device ID need to be set before init of shared code */
 	hw->device_id = pci_dev->id.device_id;
 	hw->vendor_id = pci_dev->id.vendor_id;
-	hw->adapter_stopped = TRUE;
 	hw->hw_addr0 = (void *)pci_dev->mem_resource[0].addr;
 	hw->hw_addr1 = (void *)pci_dev->mem_resource[1].addr;
 
@@ -1095,10 +1092,10 @@ vmxnet3_dev_start(struct rte_eth_dev *dev)
 			ret = VMXNET3_READ_BAR1_REG(hw, VMXNET3_REG_CMD);
 			if (ret != 0)
 				PMD_INIT_LOG(DEBUG,
-					"Failed in setup memory region cmd");
+					"Failed in setup memory region cmd\n");
 			ret = 0;
 		} else {
-			PMD_INIT_LOG(DEBUG, "Failed to setup memory region");
+			PMD_INIT_LOG(DEBUG, "Failed to setup memory region\n");
 		}
 	} else {
 		PMD_INIT_LOG(WARNING, "Memregs can't init (rx: %d, tx: %d)",
@@ -1132,7 +1129,6 @@ vmxnet3_dev_start(struct rte_eth_dev *dev)
 	/* Setting proper Rx Mode and issue Rx Mode Update command */
 	vmxnet3_dev_set_rxmode(hw, VMXNET3_RXM_UCAST | VMXNET3_RXM_BCAST, 1);
 
-#ifndef RTE_EXEC_ENV_FREEBSD
 	/* Setup interrupt callback  */
 	rte_intr_callback_register(dev->intr_handle,
 				   vmxnet3_interrupt_handler, dev);
@@ -1144,7 +1140,6 @@ vmxnet3_dev_start(struct rte_eth_dev *dev)
 
 	/* enable all intrs */
 	vmxnet3_enable_all_intrs(hw);
-#endif
 
 	vmxnet3_process_events(dev);
 
@@ -1470,52 +1465,42 @@ vmxnet3_dev_stats_get(struct rte_eth_dev *dev, struct rte_eth_stats *stats)
 	struct vmxnet3_hw *hw = dev->data->dev_private;
 	struct UPT1_TxStats txStats;
 	struct UPT1_RxStats rxStats;
-	uint64_t packets, bytes;
 
 	VMXNET3_WRITE_BAR1_REG(hw, VMXNET3_REG_CMD, VMXNET3_CMD_GET_STATS);
 
 	for (i = 0; i < hw->num_tx_queues; i++) {
 		vmxnet3_tx_stats_get(hw, i, &txStats);
 
-		packets = txStats.ucastPktsTxOK +
+		stats->q_opackets[i] = txStats.ucastPktsTxOK +
 			txStats.mcastPktsTxOK +
 			txStats.bcastPktsTxOK;
 
-		bytes = txStats.ucastBytesTxOK +
+		stats->q_obytes[i] = txStats.ucastBytesTxOK +
 			txStats.mcastBytesTxOK +
 			txStats.bcastBytesTxOK;
 
-		stats->opackets += packets;
-		stats->obytes += bytes;
+		stats->opackets += stats->q_opackets[i];
+		stats->obytes += stats->q_obytes[i];
 		stats->oerrors += txStats.pktsTxError + txStats.pktsTxDiscard;
-
-		if (i < RTE_ETHDEV_QUEUE_STAT_CNTRS) {
-			stats->q_opackets[i] = packets;
-			stats->q_obytes[i] = bytes;
-		}
 	}
 
 	for (i = 0; i < hw->num_rx_queues; i++) {
 		vmxnet3_rx_stats_get(hw, i, &rxStats);
 
-		packets = rxStats.ucastPktsRxOK +
+		stats->q_ipackets[i] = rxStats.ucastPktsRxOK +
 			rxStats.mcastPktsRxOK +
 			rxStats.bcastPktsRxOK;
 
-		bytes = rxStats.ucastBytesRxOK +
+		stats->q_ibytes[i] = rxStats.ucastBytesRxOK +
 			rxStats.mcastBytesRxOK +
 			rxStats.bcastBytesRxOK;
 
-		stats->ipackets += packets;
-		stats->ibytes += bytes;
+		stats->ipackets += stats->q_ipackets[i];
+		stats->ibytes += stats->q_ibytes[i];
+
+		stats->q_errors[i] = rxStats.pktsRxError;
 		stats->ierrors += rxStats.pktsRxError;
 		stats->imissed += rxStats.pktsRxOutOfBuf;
-
-		if (i < RTE_ETHDEV_QUEUE_STAT_CNTRS) {
-			stats->q_ipackets[i] = packets;
-			stats->q_ibytes[i] = bytes;
-			stats->q_errors[i] = rxStats.pktsRxError;
-		}
 	}
 
 	return 0;
@@ -1530,6 +1515,8 @@ vmxnet3_dev_stats_reset(struct rte_eth_dev *dev)
 	struct UPT1_RxStats rxStats = {0};
 
 	VMXNET3_WRITE_BAR1_REG(hw, VMXNET3_REG_CMD, VMXNET3_CMD_GET_STATS);
+
+	RTE_BUILD_BUG_ON(RTE_ETHDEV_QUEUE_STAT_CNTRS < VMXNET3_MAX_TX_QUEUES);
 
 	for (i = 0; i < hw->num_tx_queues; i++) {
 		vmxnet3_hw_tx_stats_get(hw, i, &txStats);
@@ -1574,7 +1561,7 @@ vmxnet3_dev_info_get(struct rte_eth_dev *dev,
 	dev_info->min_rx_bufsize = 1518 + RTE_PKTMBUF_HEADROOM;
 	dev_info->max_rx_pktlen = 16384; /* includes CRC, cf MAXFRS register */
 	dev_info->min_mtu = VMXNET3_MIN_MTU;
-	dev_info->max_mtu = VMXNET3_VERSION_GE_6(hw) ? VMXNET3_V6_MAX_MTU : VMXNET3_MAX_MTU;
+	dev_info->max_mtu = VMXNET3_MAX_MTU;
 	dev_info->speed_capa = RTE_ETH_LINK_SPEED_10G;
 	dev_info->max_mac_addrs = VMXNET3_MAX_MAC_ADDRS;
 
@@ -1941,13 +1928,11 @@ done:
 static int
 vmxnet3_dev_rx_queue_intr_enable(struct rte_eth_dev *dev, uint16_t queue_id)
 {
-#ifndef RTE_EXEC_ENV_FREEBSD
 	struct vmxnet3_hw *hw = dev->data->dev_private;
 
 	vmxnet3_enable_intr(hw,
 			    rte_intr_vec_list_index_get(dev->intr_handle,
 							       queue_id));
-#endif
 
 	return 0;
 }

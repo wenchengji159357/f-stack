@@ -351,9 +351,6 @@ roc_npc_fini(struct roc_npc *roc_npc)
 	struct npc *npc = roc_npc_to_npc_priv(roc_npc);
 	int rc;
 
-	if (!roc_npc->flow_age.aged_flows_get_thread_exit)
-		npc_aging_ctrl_thread_destroy(roc_npc);
-
 	rc = npc_flow_free_all_resources(npc);
 	if (rc) {
 		plt_err("Error when deleting NPC MCAM entries, counters");
@@ -820,11 +817,10 @@ npc_parse_pattern(struct npc *npc, const struct roc_npc_item_info pattern[],
 	pst->mcam_data = (uint8_t *)flow->mcam_data;
 	pst->mcam_mask = (uint8_t *)flow->mcam_mask;
 
-	while (pattern->type != ROC_NPC_ITEM_TYPE_END && layer < PLT_DIM(parse_stage_funcs)) {
+	while (pattern->type != ROC_NPC_ITEM_TYPE_END &&
+	       layer < PLT_DIM(parse_stage_funcs)) {
 		/* Skip place-holders */
 		pattern = npc_parse_skip_void_and_any_items(pattern);
-		if (pattern->type == ROC_NPC_ITEM_TYPE_END)
-			break;
 
 		pst->pattern = pattern;
 		rc = parse_stage_funcs[layer](pst);
@@ -1630,7 +1626,8 @@ roc_npc_flow_destroy(struct roc_npc *roc_npc, struct roc_npc_flow *flow)
 	if (flow->has_age_action)
 		npc_age_flow_list_entry_delete(roc_npc, flow);
 
-	if (roc_npc->flow_age.age_flow_refcnt == 0)
+	if (roc_npc->flow_age.age_flow_refcnt == 0 &&
+		plt_thread_is_valid(roc_npc->flow_age.aged_flows_poll_thread))
 		npc_aging_ctrl_thread_destroy(roc_npc);
 
 done:

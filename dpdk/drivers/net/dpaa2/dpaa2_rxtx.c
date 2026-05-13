@@ -640,7 +640,7 @@ dump_err_pkts(struct dpaa2_queue *dpaa2_q)
 	if (unlikely(!DPAA2_PER_LCORE_DPIO)) {
 		ret = dpaa2_affine_qbman_swp();
 		if (ret) {
-			DPAA2_PMD_ERR("Failed to allocate IO portal, tid: %d",
+			DPAA2_PMD_ERR("Failed to allocate IO portal, tid: %d\n",
 				rte_gettid());
 			return;
 		}
@@ -691,7 +691,7 @@ dump_err_pkts(struct dpaa2_queue *dpaa2_q)
 		hw_annot_addr = (void *)((size_t)v_addr + DPAA2_FD_PTA_SIZE);
 		fas = hw_annot_addr;
 
-		DPAA2_PMD_ERR("[%d] error packet on port[%d]:"
+		DPAA2_PMD_ERR("\n\n[%d] error packet on port[%d]:"
 			" fd_off: %d, fd_err: %x, fas_status: %x",
 			rte_lcore_id(), eth_data->port_id,
 			DPAA2_GET_FD_OFFSET(fd), DPAA2_GET_FD_ERR(fd),
@@ -923,7 +923,7 @@ dpaa2_dev_process_atomic_event(struct qbman_swp *swp __rte_unused,
 	dqrr_index = qbman_get_dqrr_idx(dq);
 	*dpaa2_seqn(ev->mbuf) = dqrr_index + 1;
 	DPAA2_PER_LCORE_DQRR_SIZE++;
-	DPAA2_PER_LCORE_DQRR_HELD |= UINT64_C(1) << dqrr_index;
+	DPAA2_PER_LCORE_DQRR_HELD |= 1 << dqrr_index;
 	DPAA2_PER_LCORE_DQRR_MBUF(dqrr_index) = ev->mbuf;
 }
 
@@ -976,7 +976,7 @@ dpaa2_dev_rx(void *queue, struct rte_mbuf **bufs, uint16_t nb_pkts)
 		ret = dpaa2_affine_qbman_swp();
 		if (ret) {
 			DPAA2_PMD_ERR(
-				"Failed to allocate IO portal, tid: %d",
+				"Failed to allocate IO portal, tid: %d\n",
 				rte_gettid());
 			return 0;
 		}
@@ -1107,7 +1107,7 @@ uint16_t dpaa2_dev_tx_conf(void *queue)
 		ret = dpaa2_affine_qbman_swp();
 		if (ret) {
 			DPAA2_PMD_ERR(
-				"Failed to allocate IO portal, tid: %d",
+				"Failed to allocate IO portal, tid: %d\n",
 				rte_gettid());
 			return 0;
 		}
@@ -1256,7 +1256,7 @@ dpaa2_dev_tx(void *queue, struct rte_mbuf **bufs, uint16_t nb_pkts)
 		ret = dpaa2_affine_qbman_swp();
 		if (ret) {
 			DPAA2_PMD_ERR(
-				"Failed to allocate IO portal, tid: %d",
+				"Failed to allocate IO portal, tid: %d\n",
 				rte_gettid());
 			return 0;
 		}
@@ -1304,7 +1304,7 @@ dpaa2_dev_tx(void *queue, struct rte_mbuf **bufs, uint16_t nb_pkts)
 				flags[loop] = QBMAN_ENQUEUE_FLAG_DCA |
 						dqrr_index;
 				DPAA2_PER_LCORE_DQRR_SIZE--;
-				DPAA2_PER_LCORE_DQRR_HELD &= ~(UINT64_C(1) << dqrr_index);
+				DPAA2_PER_LCORE_DQRR_HELD &= ~(1 << dqrr_index);
 				*dpaa2_seqn(*bufs) = DPAA2_INVALID_MBUF_SEQN;
 			}
 
@@ -1543,7 +1543,7 @@ dpaa2_set_enqueue_descriptor(struct dpaa2_queue *dpaa2_q,
 		dq_idx = *dpaa2_seqn(m) - 1;
 		qbman_eq_desc_set_dca(eqdesc, 1, dq_idx, 0);
 		DPAA2_PER_LCORE_DQRR_SIZE--;
-		DPAA2_PER_LCORE_DQRR_HELD &= ~(UINT64_C(1) << dq_idx);
+		DPAA2_PER_LCORE_DQRR_HELD &= ~(1 << dq_idx);
 	}
 	*dpaa2_seqn(m) = DPAA2_INVALID_MBUF_SEQN;
 }
@@ -1573,7 +1573,7 @@ dpaa2_dev_tx_multi_txq_ordered(void **queue,
 		ret = dpaa2_affine_qbman_swp();
 		if (ret) {
 			DPAA2_PMD_ERR(
-				"Failed to allocate IO portal, tid: %d",
+				"Failed to allocate IO portal, tid: %d\n",
 				rte_gettid());
 			return 0;
 		}
@@ -1747,7 +1747,7 @@ dpaa2_dev_tx_ordered(void *queue, struct rte_mbuf **bufs, uint16_t nb_pkts)
 		ret = dpaa2_affine_qbman_swp();
 		if (ret) {
 			DPAA2_PMD_ERR(
-				"Failed to allocate IO portal, tid: %d",
+				"Failed to allocate IO portal, tid: %d\n",
 				rte_gettid());
 			return 0;
 		}

@@ -411,9 +411,6 @@ struct iavf_rxq_ops iavf_rxq_release_mbufs_ops[] = {
 #ifdef RTE_ARCH_X86
 	[IAVF_REL_MBUFS_SSE_VEC].release_mbufs = iavf_rx_queue_release_mbufs_sse,
 #endif
-#ifdef RTE_ARCH_ARM64
-	[IAVF_REL_MBUFS_NEON_VEC].release_mbufs = iavf_rx_queue_release_mbufs_neon,
-#endif
 };
 
 static const
@@ -3030,7 +3027,7 @@ iavf_check_vlan_up2tc(struct iavf_tx_queue *txq, struct rte_mbuf *m)
 	up = m->vlan_tci >> IAVF_VLAN_TAG_PCP_OFFSET;
 
 	if (!(vf->qos_cap->cap[txq->tc].tc_prio & BIT(up))) {
-		PMD_TX_LOG(ERR, "packet with vlan pcp %u cannot transmit in queue %u",
+		PMD_TX_LOG(ERR, "packet with vlan pcp %u cannot transmit in queue %u\n",
 			up, txq->queue_id);
 		return -1;
 	} else {
@@ -3671,11 +3668,7 @@ iavf_prep_pkts(__rte_unused void *tx_queue, struct rte_mbuf **tx_pkts,
 			return i;
 		}
 
-		/* valid packets are greater than min size, and single-buffer pkts
-		 * must have data_len == pkt_len
-		 */
-		if (m->pkt_len < IAVF_TX_MIN_PKT_LEN ||
-				(m->nb_segs == 1 && m->data_len != m->pkt_len)) {
+		if (m->pkt_len < IAVF_TX_MIN_PKT_LEN) {
 			rte_errno = EINVAL;
 			return i;
 		}
@@ -4013,6 +4006,7 @@ iavf_set_tx_function(struct rte_eth_dev *dev)
 		if (!use_sse && !use_avx2 && !use_avx512)
 			goto normal;
 
+		dev->tx_pkt_prepare = NULL;
 		if (use_sse) {
 			PMD_DRV_LOG(DEBUG, "Using Vector Tx (port %d).",
 				    dev->data->port_id);
@@ -4029,6 +4023,7 @@ iavf_set_tx_function(struct rte_eth_dev *dev)
 				goto normal;
 			} else {
 				dev->tx_pkt_burst = iavf_xmit_pkts_vec_avx2_offload;
+				dev->tx_pkt_prepare = iavf_prep_pkts;
 				PMD_DRV_LOG(DEBUG, "Using AVX2 OFFLOAD Vector Tx (port %d).",
 					    dev->data->port_id);
 			}
@@ -4041,10 +4036,12 @@ iavf_set_tx_function(struct rte_eth_dev *dev)
 					    dev->data->port_id);
 			} else if (check_ret == IAVF_VECTOR_OFFLOAD_PATH) {
 				dev->tx_pkt_burst = iavf_xmit_pkts_vec_avx512_offload;
+				dev->tx_pkt_prepare = iavf_prep_pkts;
 				PMD_DRV_LOG(DEBUG, "Using AVX512 OFFLOAD Vector Tx (port %d).",
 					    dev->data->port_id);
 			} else {
 				dev->tx_pkt_burst = iavf_xmit_pkts_vec_avx512_ctx_offload;
+				dev->tx_pkt_prepare = iavf_prep_pkts;
 				PMD_DRV_LOG(DEBUG, "Using AVX512 CONTEXT OFFLOAD Vector Tx (port %d).",
 					    dev->data->port_id);
 			}
@@ -4077,6 +4074,7 @@ normal:
 	PMD_DRV_LOG(DEBUG, "Using Basic Tx callback (port=%d).",
 		    dev->data->port_id);
 	dev->tx_pkt_burst = iavf_xmit_pkts;
+	dev->tx_pkt_prepare = iavf_prep_pkts;
 
 	if (no_poll_on_link_down) {
 		adapter->tx_pkt_burst = dev->tx_pkt_burst;

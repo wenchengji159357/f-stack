@@ -295,8 +295,6 @@ eth_txgbevf_dev_init(struct rte_eth_dev *eth_dev)
 	err = hw->mac.start_hw(hw);
 	if (err) {
 		PMD_INIT_LOG(ERR, "VF Initialization Failure: %d", err);
-		rte_free(eth_dev->data->mac_addrs);
-		eth_dev->data->mac_addrs = NULL;
 		return -EIO;
 	}
 
@@ -672,10 +670,8 @@ txgbevf_dev_start(struct rte_eth_dev *dev)
 		 * now only one vector is used for Rx queue
 		 */
 		intr_vector = 1;
-		if (rte_intr_efd_enable(intr_handle, intr_vector)) {
-			txgbe_dev_clear_queues(dev);
+		if (rte_intr_efd_enable(intr_handle, intr_vector))
 			return -1;
-		}
 	}
 
 	if (rte_intr_dp_is_en(intr_handle)) {
@@ -683,7 +679,6 @@ txgbevf_dev_start(struct rte_eth_dev *dev)
 						   dev->data->nb_rx_queues)) {
 			PMD_INIT_LOG(ERR, "Failed to allocate %d rx_queues"
 				     " intr_vec", dev->data->nb_rx_queues);
-			txgbe_dev_clear_queues(dev);
 			return -ENOMEM;
 		}
 	}
@@ -863,7 +858,7 @@ txgbevf_vlan_filter_set(struct rte_eth_dev *dev, uint16_t vlan_id, int on)
 }
 
 static void
-txgbevf_vlan_strip_q_set(struct rte_eth_dev *dev, uint16_t queue, int on)
+txgbevf_vlan_strip_queue_set(struct rte_eth_dev *dev, uint16_t queue, int on)
 {
 	struct txgbe_hw *hw = TXGBE_DEV_HW(dev);
 	uint32_t ctrl;
@@ -874,26 +869,18 @@ txgbevf_vlan_strip_q_set(struct rte_eth_dev *dev, uint16_t queue, int on)
 		return;
 
 	ctrl = rd32(hw, TXGBE_RXCFG(queue));
+	txgbe_dev_save_rx_queue(hw, queue);
 	if (on)
 		ctrl |= TXGBE_RXCFG_VLAN;
 	else
 		ctrl &= ~TXGBE_RXCFG_VLAN;
-	wr32(hw, TXGBE_RXCFG(queue), ctrl);
+	wr32(hw, TXGBE_RXCFG(queue), 0);
+	msec_delay(100);
+	txgbe_dev_store_rx_queue(hw, queue);
+	wr32m(hw, TXGBE_RXCFG(queue),
+		TXGBE_RXCFG_VLAN | TXGBE_RXCFG_ENA, ctrl);
 
 	txgbe_vlan_hw_strip_bitmap_set(dev, queue, on);
-}
-
-static void
-txgbevf_vlan_strip_queue_set(struct rte_eth_dev *dev, uint16_t queue, int on)
-{
-	struct txgbe_hw *hw = TXGBE_DEV_HW(dev);
-
-	if (!hw->adapter_stopped) {
-		PMD_DRV_LOG(ERR, "Please stop port first");
-		return;
-	}
-
-	txgbevf_vlan_strip_q_set(dev, queue, on);
 }
 
 static int
@@ -908,7 +895,7 @@ txgbevf_vlan_offload_config(struct rte_eth_dev *dev, int mask)
 		for (i = 0; i < dev->data->nb_rx_queues; i++) {
 			rxq = dev->data->rx_queues[i];
 			on = !!(rxq->offloads &	RTE_ETH_RX_OFFLOAD_VLAN_STRIP);
-			txgbevf_vlan_strip_q_set(dev, i, on);
+			txgbevf_vlan_strip_queue_set(dev, i, on);
 		}
 	}
 
@@ -918,13 +905,6 @@ txgbevf_vlan_offload_config(struct rte_eth_dev *dev, int mask)
 static int
 txgbevf_vlan_offload_set(struct rte_eth_dev *dev, int mask)
 {
-	struct txgbe_hw *hw = TXGBE_DEV_HW(dev);
-
-	if (!hw->adapter_stopped && (mask & RTE_ETH_VLAN_STRIP_MASK)) {
-		PMD_DRV_LOG(ERR, "Please stop port first");
-		return -EPERM;
-	}
-
 	txgbe_config_vlan_strip_on_all_queues(dev, mask);
 
 	txgbevf_vlan_offload_config(dev, mask);
@@ -985,7 +965,7 @@ txgbevf_set_ivar_map(struct txgbe_hw *hw, int8_t direction,
 		wr32(hw, TXGBE_VFIVARMISC, tmp);
 	} else {
 		/* rx or tx cause */
-		msix_vector |= TXGBE_VFIVAR_VLD; /* Workaround for ICR lost */
+		/* Workaround for ICR lost */
 		idx = ((16 * (queue & 1)) + (8 * direction));
 		tmp = rd32(hw, TXGBE_VFIVAR(queue >> 1));
 		tmp &= ~(0xFF << idx);
@@ -1221,13 +1201,9 @@ static int
 txgbevf_dev_promiscuous_disable(struct rte_eth_dev *dev)
 {
 	struct txgbe_hw *hw = TXGBE_DEV_HW(dev);
-	int mode = TXGBEVF_XCAST_MODE_NONE;
 	int ret;
 
-	if (dev->data->all_multicast)
-		mode = TXGBEVF_XCAST_MODE_ALLMULTI;
-
-	switch (hw->mac.update_xcast_mode(hw, mode)) {
+	switch (hw->mac.update_xcast_mode(hw, TXGBEVF_XCAST_MODE_NONE)) {
 	case 0:
 		ret = 0;
 		break;
@@ -1247,9 +1223,6 @@ txgbevf_dev_allmulticast_enable(struct rte_eth_dev *dev)
 {
 	struct txgbe_hw *hw = TXGBE_DEV_HW(dev);
 	int ret;
-
-	if (dev->data->promiscuous)
-		return 0;
 
 	switch (hw->mac.update_xcast_mode(hw, TXGBEVF_XCAST_MODE_ALLMULTI)) {
 	case 0:
@@ -1271,9 +1244,6 @@ txgbevf_dev_allmulticast_disable(struct rte_eth_dev *dev)
 {
 	struct txgbe_hw *hw = TXGBE_DEV_HW(dev);
 	int ret;
-
-	if (dev->data->promiscuous)
-		return 0;
 
 	switch (hw->mac.update_xcast_mode(hw, TXGBEVF_XCAST_MODE_MULTI)) {
 	case 0:

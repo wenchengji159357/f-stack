@@ -245,26 +245,6 @@ Limitations
   - Matching on ICMP6 following IPv6 routing extension header,
     should match ``ipv6_routing_ext_next_hdr`` instead of ICMP6.
 
-  - The supported actions order is as below::
-
-          MARK (a)
-          *_DECAP (b)
-          OF_POP_VLAN
-          COUNT | AGE
-          METER_MARK | CONNTRACK
-          OF_PUSH_VLAN
-          MODIFY_FIELD
-          *_ENCAP (c)
-          JUMP | DROP | RSS (a) | QUEUE (a) | REPRESENTED_PORT (d)
-
-    a. Only supported on ingress.
-    b. Any decapsulation action, including the combination of RAW_ENCAP and RAW_DECAP actions
-       which results in L3 decapsulation.
-       Not supported on egress.
-    c. Any encapsulation action, including the combination of RAW_ENCAP and RAW_DECAP actions
-       which results in L3 encap.
-    d. Only in transfer (switchdev) mode.
-
 - When using Verbs flow engine (``dv_flow_en`` = 0), flow pattern without any
   specific VLAN will match for VLAN packets as well:
 
@@ -728,8 +708,8 @@ Limitations
 
   - Cannot co-exist with ASO meter, ASO age action in a single flow rule.
   - Flow rules insertion rate and memory consumption need more optimization.
-  - 16 ports maximum.
-  - 32M connections maximum.
+  - 256 ports maximum.
+  - 4M connections maximum with ``dv_flow_en`` 1 mode. 16M with ``dv_flow_en`` 2.
 
 - Multi-thread flow insertion:
 
@@ -1485,7 +1465,7 @@ Supported HCAs:
 
 Supported mlx5 kernel modules versions:
 
-- Upstream Linux - from version 6.3 with CONFIG_NET_TC_SKB_EXT and CONFIG_MLX5_CLS_ACT enabled.
+- Upstream Linux - from version 6.3.
 - Modules packaged in MLNX_OFED - from version v23.04-0.5.3.3.
 
 Configuration
@@ -1872,77 +1852,6 @@ All references to these flows held by the application should be discarded
 directly but neither destroyed nor flushed.
 
 The application should re-create the flows as required after the port restart.
-
-
-Notes for flow counters
------------------------
-
-mlx5 PMD supports the ``COUNT`` flow action,
-which provides an ability to count packets (and bytes)
-matched against a given flow rule.
-This section describes the high level overview of
-how this support is implemented and limitations.
-
-HW steering flow engine
-~~~~~~~~~~~~~~~~~~~~~~~
-
-Flow counters are allocated from HW in bulks.
-A set of bulks forms a flow counter pool managed by PMD.
-When flow counters are queried from HW,
-each counter is identified by an offset in a given bulk.
-Querying HW flow counter requires sending a request to HW,
-which will request a read of counter values for given offsets.
-HW will asynchronously provide these values through a DMA write.
-
-In order to optimize HW to SW communication,
-these requests are handled in a separate counter service thread
-spawned by mlx5 PMD.
-This service thread will refresh the counter values stored in memory,
-in cycles, each spanning ``svc_cycle_time`` milliseconds.
-By default, ``svc_cycle_time`` is set to 500.
-When applications query the ``COUNT`` flow action,
-PMD returns the values stored in host memory.
-
-mlx5 PMD manages 3 global rings of allocated counter offsets:
-
-- ``free`` ring - Counters which were not used at all.
-- ``wait_reset`` ring - Counters which were used in some flow rules,
-  but were recently freed (flow rule was destroyed
-  or an indirect action was destroyed).
-  Since the count value might have changed
-  between the last counter service thread cycle and the moment it was freed,
-  the value in host memory might be stale.
-  During the next service thread cycle,
-  such counters will be moved to ``reuse`` ring.
-- ``reuse`` ring - Counters which were used at least once
-  and can be reused in new flow rules.
-
-When counters are assigned to a flow rule (or allocated to indirect action),
-the PMD first tries to fetch a counter from ``reuse`` ring.
-If it's empty, the PMD fetches a counter from ``free`` ring.
-
-The counter service thread works as follows:
-
-#. Record counters stored in ``wait_reset`` ring.
-#. Read values of all counters which were used at least once
-   or are currently in use.
-#. Move recorded counters from ``wait_reset`` to ``reuse`` ring.
-#. Sleep for ``(query time) - svc_cycle_time`` milliseconds
-#. Repeat.
-
-Because freeing a counter (by destroying a flow rule or destroying indirect action)
-does not immediately make it available for the application,
-the PMD might return:
-
-- ``ENOENT`` if no counter is available in ``free``, ``reuse``
-  or ``wait_reset`` rings.
-  No counter will be available until the application releases some of them.
-- ``EAGAIN`` if no counter is available in ``free`` and ``reuse`` rings,
-  but there are counters in ``wait_reset`` ring.
-  This means that after the next service thread cycle new counters will be available.
-
-The application has to be aware that flow rule create or indirect action create
-might need be retried.
 
 
 Notes for hairpin

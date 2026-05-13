@@ -582,7 +582,7 @@ cnxk_nix_process_rx_conf(const struct rte_eth_rxconf *rx_conf,
 	}
 
 	if (mp == NULL || mp[0] == NULL || mp[1] == NULL) {
-		plt_err("invalid memory pools");
+		plt_err("invalid memory pools\n");
 		return -EINVAL;
 	}
 
@@ -610,7 +610,7 @@ cnxk_nix_process_rx_conf(const struct rte_eth_rxconf *rx_conf,
 		return -EINVAL;
 	}
 
-	plt_info("spb_pool:%s lpb_pool:%s lpb_len:%u spb_len:%u", (*spb_pool)->name,
+	plt_info("spb_pool:%s lpb_pool:%s lpb_len:%u spb_len:%u\n", (*spb_pool)->name,
 		 (*lpb_pool)->name, (*lpb_pool)->elt_size, (*spb_pool)->elt_size);
 
 	return 0;
@@ -626,7 +626,6 @@ cnxk_nix_rx_queue_setup(struct rte_eth_dev *eth_dev, uint16_t qid,
 	struct roc_nix *nix = &dev->nix;
 	struct cnxk_eth_rxq_sp *rxq_sp;
 	struct rte_mempool_ops *ops;
-	uint32_t desc_cnt = nb_desc;
 	const char *platform_ops;
 	struct roc_nix_rq *rq;
 	struct roc_nix_cq *cq;
@@ -748,7 +747,7 @@ cnxk_nix_rx_queue_setup(struct rte_eth_dev *eth_dev, uint16_t qid,
 	rxq_sp->qconf.conf.rx = *rx_conf;
 	/* Queue config should reflect global offloads */
 	rxq_sp->qconf.conf.rx.offloads = dev->rx_offloads;
-	rxq_sp->qconf.nb_desc = desc_cnt;
+	rxq_sp->qconf.nb_desc = nb_desc;
 	rxq_sp->qconf.mp = lpb_pool;
 	rxq_sp->tc = 0;
 	rxq_sp->tx_pause = (dev->fc_cfg.mode == RTE_ETH_FC_FULL ||
@@ -1385,13 +1384,6 @@ cnxk_nix_configure(struct rte_eth_dev *eth_dev)
 		goto free_nix_lf;
 	}
 
-	/* Overwrite default RSS setup if requested by user */
-	rc = cnxk_nix_rss_hash_update(eth_dev, &conf->rx_adv_conf.rss_conf);
-	if (rc) {
-		plt_err("Failed to configure rss rc=%d", rc);
-		goto free_nix_lf;
-	}
-
 	/* Init the default TM scheduler hierarchy */
 	rc = roc_nix_tm_init(nix);
 	if (rc) {
@@ -1735,7 +1727,7 @@ cnxk_nix_dev_start(struct rte_eth_dev *eth_dev)
 	else
 		cnxk_eth_dev_ops.timesync_disable(eth_dev);
 
-	if (dev->rx_offloads & RTE_ETH_RX_OFFLOAD_TIMESTAMP || dev->ptp_en) {
+	if (dev->rx_offloads & RTE_ETH_RX_OFFLOAD_TIMESTAMP) {
 		rc = rte_mbuf_dyn_rx_timestamp_register
 			(&dev->tstamp.tstamp_dynfield_offset,
 			 &dev->tstamp.rx_tstamp_dynflag);

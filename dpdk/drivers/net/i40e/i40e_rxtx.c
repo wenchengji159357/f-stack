@@ -295,15 +295,6 @@ i40e_parse_tunneling_params(uint64_t ol_flags,
 	 */
 	*cd_tunneling |= (tx_offload.l2_len >> 1) <<
 		I40E_TXD_CTX_QW0_NATLEN_SHIFT;
-
-	/**
-	 * Calculate the tunneling UDP checksum (only supported with X722).
-	 * Shall be set only if L4TUNT = 01b and EIPT is not zero
-	 */
-	if ((*cd_tunneling & I40E_TXD_CTX_QW0_EXT_IP_MASK) &&
-			(*cd_tunneling & I40E_TXD_CTX_UDP_TUNNELING) &&
-			(ol_flags & RTE_MBUF_F_TX_OUTER_UDP_CKSUM))
-		*cd_tunneling |= I40E_TXD_CTX_QW0_L4T_CS_MASK;
 }
 
 static inline void
@@ -1229,11 +1220,11 @@ i40e_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts)
 			ctx_txd->type_cmd_tso_mss =
 				rte_cpu_to_le_64(cd_type_cmd_tso_mss);
 
-			PMD_TX_LOG(DEBUG, "mbuf: %p, TCD[%u]: "
-				"tunneling_params: %#x; "
-				"l2tag2: %#hx; "
-				"rsvd: %#hx; "
-				"type_cmd_tso_mss: %#"PRIx64";",
+			PMD_TX_LOG(DEBUG, "mbuf: %p, TCD[%u]:\n"
+				"tunneling_params: %#x;\n"
+				"l2tag2: %#hx;\n"
+				"rsvd: %#hx;\n"
+				"type_cmd_tso_mss: %#"PRIx64";\n",
 				tx_pkt, tx_id,
 				ctx_txd->tunneling_params,
 				ctx_txd->l2tag2,
@@ -1276,12 +1267,12 @@ i40e_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts)
 				txd = &txr[tx_id];
 				txn = &sw_ring[txe->next_id];
 			}
-			PMD_TX_LOG(DEBUG, "mbuf: %p, TDD[%u]: "
-				"buf_dma_addr: %#"PRIx64"; "
-				"td_cmd: %#x; "
-				"td_offset: %#x; "
-				"td_len: %u; "
-				"td_tag: %#x;",
+			PMD_TX_LOG(DEBUG, "mbuf: %p, TDD[%u]:\n"
+				"buf_dma_addr: %#"PRIx64";\n"
+				"td_cmd: %#x;\n"
+				"td_offset: %#x;\n"
+				"td_len: %u;\n"
+				"td_tag: %#x;\n",
 				tx_pkt, tx_id, buf_dma_addr,
 				td_cmd, td_offset, slen, td_tag);
 
@@ -3467,7 +3458,7 @@ i40e_set_tx_function_flag(struct rte_eth_dev *dev, struct i40e_tx_queue *txq)
 				txq->queue_id);
 	else
 		PMD_INIT_LOG(DEBUG,
-				"Neither simple nor vector Tx enabled on Tx queue %u",
+				"Neither simple nor vector Tx enabled on Tx queue %u\n",
 				txq->queue_id);
 }
 
@@ -3603,8 +3594,6 @@ i40e_set_default_pctype_table(struct rte_eth_dev *dev)
 	ad->flow_types_mask = 0ULL;
 	ad->pctypes_mask = 0ULL;
 
-	ad->pctypes_tbl[RTE_ETH_FLOW_IPV4] =
-				(1ULL << I40E_FILTER_PCTYPE_NONF_IPV4_OTHER);
 	ad->pctypes_tbl[RTE_ETH_FLOW_FRAG_IPV4] =
 				(1ULL << I40E_FILTER_PCTYPE_FRAG_IPV4);
 	ad->pctypes_tbl[RTE_ETH_FLOW_NONFRAG_IPV4_UDP] =

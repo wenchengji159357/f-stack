@@ -176,15 +176,6 @@ s32 txgbe_setup_fc(struct txgbe_hw *hw)
 				      TXGBE_MD_DEV_AUTO_NEG, reg_cu);
 	}
 
-	/*
-	 * Reconfig mac ctrl frame fwd rule to make sure it still
-	 * working after port stop/start.
-	 */
-	wr32m(hw, TXGBE_MACRXFLT, TXGBE_MACRXFLT_CTL_MASK,
-	      (hw->fc.mac_ctrl_frame_fwd ?
-	       TXGBE_MACRXFLT_CTL_NOPS : TXGBE_MACRXFLT_CTL_DROP));
-	txgbe_flush(hw);
-
 	DEBUGOUT("Set up FC; reg = 0x%08X", reg);
 out:
 	return err;
@@ -471,7 +462,7 @@ void txgbe_set_lan_id_multi_port(struct txgbe_hw *hw)
  **/
 s32 txgbe_stop_hw(struct txgbe_hw *hw)
 {
-	s32 status = 0;
+	u32 reg_val;
 	u16 i;
 
 	/*
@@ -493,26 +484,16 @@ s32 txgbe_stop_hw(struct txgbe_hw *hw)
 	wr32(hw, TXGBE_ICR(0), TXGBE_ICR_MASK);
 	wr32(hw, TXGBE_ICR(1), TXGBE_ICR_MASK);
 
-	wr32(hw, TXGBE_BMECTL, 0x3);
-
-	/* Disable the receive unit by stopping each queue */
-	for (i = 0; i < hw->mac.max_rx_queues; i++)
-		wr32(hw, TXGBE_RXCFG(i), 0);
-
-	/* flush all queues disables */
-	txgbe_flush(hw);
-	msec_delay(2);
-
-	/* Prevent the PCI-E bus from hanging by disabling PCI-E master
-	 * access and verify no pending requests
-	 */
-	status = txgbe_set_pcie_master(hw, false);
-	if (status)
-		return status;
-
 	/* Disable the transmit unit.  Each queue must be disabled. */
 	for (i = 0; i < hw->mac.max_tx_queues; i++)
-		wr32(hw, TXGBE_TXCFG(i), 0);
+		wr32(hw, TXGBE_TXCFG(i), TXGBE_TXCFG_FLUSH);
+
+	/* Disable the receive unit by stopping each queue */
+	for (i = 0; i < hw->mac.max_rx_queues; i++) {
+		reg_val = rd32(hw, TXGBE_RXCFG(i));
+		reg_val &= ~TXGBE_RXCFG_ENA;
+		wr32(hw, TXGBE_RXCFG(i), reg_val);
+	}
 
 	/* flush all queues disables */
 	txgbe_flush(hw);
@@ -1191,38 +1172,6 @@ out:
 		hw->fc.fc_was_autonegged = false;
 		hw->fc.current_mode = hw->fc.requested_mode;
 	}
-}
-
-s32 txgbe_set_pcie_master(struct txgbe_hw *hw, bool enable)
-{
-	struct rte_pci_device *pci_dev = (struct rte_pci_device *)hw->back;
-	s32 status = 0;
-	u32 i;
-
-	if (rte_pci_set_bus_master(pci_dev, enable) < 0) {
-		DEBUGOUT("Cannot configure PCI bus master.");
-		return -1;
-	}
-
-	if (enable)
-		goto out;
-
-	/* Exit if master requests are blocked */
-	if (!(rd32(hw, TXGBE_BMEPEND)))
-		goto out;
-
-	/* Poll for master request bit to clear */
-	for (i = 0; i < TXGBE_PCI_MASTER_DISABLE_TIMEOUT; i++) {
-		usec_delay(100);
-		if (!(rd32(hw, TXGBE_BMEPEND)))
-			goto out;
-	}
-
-	DEBUGOUT("PCIe transaction pending bit also did not clear.");
-	status = TXGBE_ERR_MASTER_REQUESTS_PENDING;
-
-out:
-	return status;
 }
 
 /**
@@ -2063,7 +2012,9 @@ void txgbe_set_pba(struct txgbe_hw *hw, int num_pb, u32 headroom,
 	u32 rxpktsize, txpktsize, txpbthresh;
 
 	UNREFERENCED_PARAMETER(hw);
-	UNREFERENCED_PARAMETER(headroom);
+
+	/* Reserve headroom */
+	pbsize -= headroom;
 
 	if (!num_pb)
 		num_pb = 1;

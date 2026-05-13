@@ -1027,8 +1027,7 @@ int mlx5dr_cmd_generate_wqe(struct ibv_context *ctx,
 
 	ret = mlx5_glue->devx_general_cmd(ctx, in, sizeof(in), out, sizeof(out));
 	if (ret) {
-		DR_LOG(ERR, "Failed to write GTA WQE using FW (syndrome: %#x)",
-		       mlx5dr_cmd_get_syndrome(out));
+		DR_LOG(ERR, "Failed to write GTA WQE using FW");
 		rte_errno = errno;
 		return rte_errno;
 	}

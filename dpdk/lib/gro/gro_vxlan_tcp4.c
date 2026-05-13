@@ -239,11 +239,10 @@ merge_two_vxlan_tcp4_packets(struct gro_vxlan_tcp4_item *item,
 		struct rte_mbuf *pkt,
 		int cmp,
 		uint32_t sent_seq,
-		uint8_t tcp_flags,
 		uint16_t outer_ip_id,
 		uint16_t ip_id)
 {
-	if (merge_two_tcp_packets(&item->inner_item, pkt, cmp, sent_seq, tcp_flags,
+	if (merge_two_tcp_packets(&item->inner_item, pkt, cmp, sent_seq,
 				ip_id, pkt->outer_l2_len +
 				pkt->outer_l3_len)) {
 		/* Update the outer IPv4 ID to the large value. */
@@ -414,7 +413,7 @@ gro_vxlan_tcp4_reassemble(struct rte_mbuf *pkt,
 				tcp_dl, outer_is_atomic, is_atomic);
 		if (cmp) {
 			if (merge_two_vxlan_tcp4_packets(&(tbl->items[cur_idx]),
-						pkt, cmp, sent_seq, tcp_hdr->tcp_flags,
+						pkt, cmp, sent_seq,
 						outer_ip_id, ip_id))
 				return 1;
 			/*

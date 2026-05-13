@@ -5,7 +5,6 @@
 section=all
 symbol=all
 quiet=
-version=
 
 while getopts 'S:s:qV:' name; do
 	case $name in

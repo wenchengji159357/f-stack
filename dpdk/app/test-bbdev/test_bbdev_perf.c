@@ -94,8 +94,6 @@
 #define K0_2_2 25 /* K0 fraction numerator for rv 2 and BG 2 */
 #define K0_3_1 56 /* K0 fraction numerator for rv 3 and BG 1 */
 #define K0_3_2 43 /* K0 fraction numerator for rv 3 and BG 2 */
-#define NUM_SC_PER_RB (12) /* Number of subcarriers in a RB in 3GPP. */
-#define BITS_PER_LLR  (8)  /* Number of bits in a LLR. */
 
 #define HARQ_MEM_TOLERANCE 256
 static struct test_bbdev_vector test_vector;
@@ -2133,8 +2131,7 @@ validate_op_chain(struct rte_bbdev_op_data *op,
 		uint16_t data_len = rte_pktmbuf_data_len(m) - offset;
 		total_data_size += orig_op->segments[i].length;
 
-		if ((orig_op->segments[i].length + RTE_PKTMBUF_HEADROOM)
-				> RTE_BBDEV_LDPC_E_MAX_MBUF)
+		if (orig_op->segments[i].length > RTE_BBDEV_LDPC_E_MAX_MBUF)
 			ignore_mbuf = true;
 		if (!ignore_mbuf)
 			TEST_ASSERT(orig_op->segments[i].length == data_len,
@@ -2898,14 +2895,8 @@ calc_fft_size(struct rte_bbdev_fft_op *op)
 static uint32_t
 calc_mldts_size(struct rte_bbdev_mldts_op *op)
 {
-	uint32_t output_size = 0;
-	uint16_t i;
-
-	for (i = 0; i < op->mldts.num_layers; i++)
-		output_size += op->mldts.q_m[i];
-
-	output_size *= NUM_SC_PER_RB * BITS_PER_LLR * op->mldts.num_rbs * (op->mldts.c_rep + 1);
-
+	uint32_t output_size;
+	output_size = op->mldts.num_layers * op->mldts.num_rbs * op->mldts.c_rep;
 	return output_size;
 }
 
@@ -3408,15 +3399,6 @@ throughput_intr_lcore_ldpc_dec(void *arg)
 			if (unlikely(num_to_process - enqueued < num_to_enq))
 				num_to_enq = num_to_process - enqueued;
 
-			/* Write to thread burst_sz current number of enqueued
-			 * descriptors. It ensures that proper number of
-			 * descriptors will be dequeued in callback
-			 * function - needed for last batch in case where
-			 * the number of operations is not a multiple of
-			 * burst size.
-			 */
-			__atomic_store_n(&tp->burst_sz, num_to_enq, __ATOMIC_RELAXED);
-
 			enq = 0;
 			do {
 				enq += rte_bbdev_enqueue_ldpc_dec_ops(
@@ -3425,6 +3407,15 @@ throughput_intr_lcore_ldpc_dec(void *arg)
 						num_to_enq);
 			} while (unlikely(num_to_enq != enq));
 			enqueued += enq;
+
+			/* Write to thread burst_sz current number of enqueued
+			 * descriptors. It ensures that proper number of
+			 * descriptors will be dequeued in callback
+			 * function - needed for last batch in case where
+			 * the number of operations is not a multiple of
+			 * burst size.
+			 */
+			__atomic_store_n(&tp->burst_sz, num_to_enq, __ATOMIC_RELAXED);
 
 			/* Wait until processing of previous batch is
 			 * completed
@@ -3500,6 +3491,14 @@ throughput_intr_lcore_dec(void *arg)
 			if (unlikely(num_to_process - enqueued < num_to_enq))
 				num_to_enq = num_to_process - enqueued;
 
+			enq = 0;
+			do {
+				enq += rte_bbdev_enqueue_dec_ops(tp->dev_id,
+						queue_id, &ops[enqueued],
+						num_to_enq);
+			} while (unlikely(num_to_enq != enq));
+			enqueued += enq;
+
 			/* Write to thread burst_sz current number of enqueued
 			 * descriptors. It ensures that proper number of
 			 * descriptors will be dequeued in callback
@@ -3508,14 +3507,6 @@ throughput_intr_lcore_dec(void *arg)
 			 * burst size.
 			 */
 			__atomic_store_n(&tp->burst_sz, num_to_enq, __ATOMIC_RELAXED);
-
-			enq = 0;
-			do {
-				enq += rte_bbdev_enqueue_dec_ops(tp->dev_id,
-						queue_id, &ops[enqueued],
-						num_to_enq);
-			} while (unlikely(num_to_enq != enq));
-			enqueued += enq;
 
 			/* Wait until processing of previous batch is
 			 * completed
@@ -3586,6 +3577,14 @@ throughput_intr_lcore_enc(void *arg)
 			if (unlikely(num_to_process - enqueued < num_to_enq))
 				num_to_enq = num_to_process - enqueued;
 
+			enq = 0;
+			do {
+				enq += rte_bbdev_enqueue_enc_ops(tp->dev_id,
+						queue_id, &ops[enqueued],
+						num_to_enq);
+			} while (unlikely(enq != num_to_enq));
+			enqueued += enq;
+
 			/* Write to thread burst_sz current number of enqueued
 			 * descriptors. It ensures that proper number of
 			 * descriptors will be dequeued in callback
@@ -3594,14 +3593,6 @@ throughput_intr_lcore_enc(void *arg)
 			 * burst size.
 			 */
 			__atomic_store_n(&tp->burst_sz, num_to_enq, __ATOMIC_RELAXED);
-
-			enq = 0;
-			do {
-				enq += rte_bbdev_enqueue_enc_ops(tp->dev_id,
-						queue_id, &ops[enqueued],
-						num_to_enq);
-			} while (unlikely(enq != num_to_enq));
-			enqueued += enq;
 
 			/* Wait until processing of previous batch is
 			 * completed
@@ -3674,15 +3665,6 @@ throughput_intr_lcore_ldpc_enc(void *arg)
 			if (unlikely(num_to_process - enqueued < num_to_enq))
 				num_to_enq = num_to_process - enqueued;
 
-			/* Write to thread burst_sz current number of enqueued
-			 * descriptors. It ensures that proper number of
-			 * descriptors will be dequeued in callback
-			 * function - needed for last batch in case where
-			 * the number of operations is not a multiple of
-			 * burst size.
-			 */
-			__atomic_store_n(&tp->burst_sz, num_to_enq, __ATOMIC_RELAXED);
-
 			enq = 0;
 			do {
 				enq += rte_bbdev_enqueue_ldpc_enc_ops(
@@ -3691,6 +3673,15 @@ throughput_intr_lcore_ldpc_enc(void *arg)
 						num_to_enq);
 			} while (unlikely(enq != num_to_enq));
 			enqueued += enq;
+
+			/* Write to thread burst_sz current number of enqueued
+			 * descriptors. It ensures that proper number of
+			 * descriptors will be dequeued in callback
+			 * function - needed for last batch in case where
+			 * the number of operations is not a multiple of
+			 * burst size.
+			 */
+			__atomic_store_n(&tp->burst_sz, num_to_enq, __ATOMIC_RELAXED);
 
 			/* Wait until processing of previous batch is
 			 * completed
@@ -3763,6 +3754,14 @@ throughput_intr_lcore_fft(void *arg)
 			if (unlikely(num_to_process - enqueued < num_to_enq))
 				num_to_enq = num_to_process - enqueued;
 
+			enq = 0;
+			do {
+				enq += rte_bbdev_enqueue_fft_ops(tp->dev_id,
+						queue_id, &ops[enqueued],
+						num_to_enq);
+			} while (unlikely(enq != num_to_enq));
+			enqueued += enq;
+
 			/* Write to thread burst_sz current number of enqueued
 			 * descriptors. It ensures that proper number of
 			 * descriptors will be dequeued in callback
@@ -3771,14 +3770,6 @@ throughput_intr_lcore_fft(void *arg)
 			 * burst size.
 			 */
 			__atomic_store_n(&tp->burst_sz, num_to_enq, __ATOMIC_RELAXED);
-
-			enq = 0;
-			do {
-				enq += rte_bbdev_enqueue_fft_ops(tp->dev_id,
-						queue_id, &ops[enqueued],
-						num_to_enq);
-			} while (unlikely(enq != num_to_enq));
-			enqueued += enq;
 
 			/* Wait until processing of previous batch is
 			 * completed
@@ -3846,6 +3837,13 @@ throughput_intr_lcore_mldts(void *arg)
 			if (unlikely(num_to_process - enqueued < num_to_enq))
 				num_to_enq = num_to_process - enqueued;
 
+			enq = 0;
+			do {
+				enq += rte_bbdev_enqueue_mldts_ops(tp->dev_id,
+						queue_id, &ops[enqueued], num_to_enq);
+			} while (unlikely(enq != num_to_enq));
+			enqueued += enq;
+
 			/* Write to thread burst_sz current number of enqueued
 			 * descriptors. It ensures that proper number of
 			 * descriptors will be dequeued in callback
@@ -3854,13 +3852,6 @@ throughput_intr_lcore_mldts(void *arg)
 			 * burst size.
 			 */
 			__atomic_store_n(&tp->burst_sz, num_to_enq, __ATOMIC_RELAXED);
-
-			enq = 0;
-			do {
-				enq += rte_bbdev_enqueue_mldts_ops(tp->dev_id,
-						queue_id, &ops[enqueued], num_to_enq);
-			} while (unlikely(enq != num_to_enq));
-			enqueued += enq;
 
 			/* Wait until processing of previous batch is
 			 * completed

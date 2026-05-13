@@ -106,7 +106,6 @@ struct mlx5dr_send_ring_dep_wqe {
 	uint32_t rtc_1;
 	uint32_t retry_rtc_0;
 	uint32_t retry_rtc_1;
-	uint32_t direct_index;
 	void *user_data;
 };
 
@@ -203,6 +202,8 @@ struct mlx5dr_send_ste_attr {
  *   value to write in CPU endian format.
  * @param addr
  *   Address to write to.
+ * @param lock
+ *   Address of the lock to use for that UAR access.
  */
 static __rte_always_inline void
 mlx5dr_uar_write64_relaxed(uint64_t val, void *addr)

@@ -102,7 +102,7 @@ ern_sec_fq_handler(struct qman_portal *qm __rte_unused,
 		   struct qman_fq *fq,
 		   const struct qm_mr_entry *msg)
 {
-	DPAA_SEC_DP_ERR("sec fq %d error, RC = %x, seqnum = %x",
+	DPAA_SEC_DP_ERR("sec fq %d error, RC = %x, seqnum = %x\n",
 			fq->fqid, msg->ern.rc, msg->ern.seqnum);
 }
 
@@ -395,10 +395,10 @@ dpaa_sec_prep_ipsec_cdb(dpaa_sec_session *ses)
 
 	cdb->sh_desc[0] = cipherdata.keylen;
 	cdb->sh_desc[1] = authdata.keylen;
-	err = rta_inline_ipsec_query(IPSEC_AUTH_VAR_AES_DEC_BASE_DESC_LEN,
+	err = rta_inline_query(IPSEC_AUTH_VAR_AES_DEC_BASE_DESC_LEN,
 			       DESC_JOB_IO_LEN,
 			       (unsigned int *)cdb->sh_desc,
-			       &cdb->sh_desc[2], 2, authdata.algtype, 1);
+			       &cdb->sh_desc[2], 2);
 
 	if (err < 0) {
 		DPAA_SEC_ERR("Crypto: Incorrect key lengths");
@@ -849,7 +849,7 @@ dpaa_sec_deq(struct dpaa_sec_qp *qp, struct rte_crypto_op **ops, int nb_ops)
 			op->status = RTE_CRYPTO_OP_STATUS_SUCCESS;
 		} else {
 			if (dpaa_sec_dp_dump > DPAA_SEC_DP_NO_DUMP) {
-				DPAA_SEC_DP_WARN("SEC return err:0x%x",
+				DPAA_SEC_DP_WARN("SEC return err:0x%x\n",
 						  ctx->fd_status);
 				if (dpaa_sec_dp_dump > DPAA_SEC_DP_ERR_DUMP)
 					dpaa_sec_dump(ctx, qp);
@@ -1903,12 +1903,13 @@ dpaa_sec_enqueue_burst(void *qp, struct rte_crypto_op **ops,
 			op = *(ops++);
 			if (*dpaa_seqn(op->sym->m_src) != 0) {
 				index = *dpaa_seqn(op->sym->m_src) - 1;
-				if (DPAA_PER_LCORE_DQRR_HELD & (UINT64_C(1) << index)) {
+				if (DPAA_PER_LCORE_DQRR_HELD & (1 << index)) {
 					/* QM_EQCR_DCA_IDXMASK = 0x0f */
 					flags[loop] = ((index & 0x0f) << 8);
 					flags[loop] |= QMAN_ENQUEUE_FLAG_DCA;
 					DPAA_PER_LCORE_DQRR_SIZE--;
-					DPAA_PER_LCORE_DQRR_HELD &= ~(UINT64_C(1) << index);
+					DPAA_PER_LCORE_DQRR_HELD &=
+								~(1 << index);
 				}
 			}
 
@@ -1943,7 +1944,7 @@ dpaa_sec_enqueue_burst(void *qp, struct rte_crypto_op **ops,
 			} else if (unlikely(ses->qp[rte_lcore_id() %
 						MAX_DPAA_CORES] != qp)) {
 				DPAA_SEC_DP_ERR("Old:sess->qp = %p"
-					" New qp = %p",
+					" New qp = %p\n",
 					ses->qp[rte_lcore_id() %
 					MAX_DPAA_CORES], qp);
 				frames_to_send = loop;
@@ -2053,7 +2054,7 @@ dpaa_sec_enqueue_burst(void *qp, struct rte_crypto_op **ops,
 				fd->cmd = 0x80000000 |
 					*((uint32_t *)((uint8_t *)op +
 					ses->pdcp.hfn_ovd_offset));
-				DPAA_SEC_DP_DEBUG("Per packet HFN: %x, ovd:%u",
+				DPAA_SEC_DP_DEBUG("Per packet HFN: %x, ovd:%u\n",
 					*((uint32_t *)((uint8_t *)op +
 					ses->pdcp.hfn_ovd_offset)),
 					ses->pdcp.hfn_ovd);
@@ -2094,7 +2095,7 @@ dpaa_sec_dequeue_burst(void *qp, struct rte_crypto_op **ops,
 	dpaa_qp->rx_pkts += num_rx;
 	dpaa_qp->rx_errs += nb_ops - num_rx;
 
-	DPAA_SEC_DP_DEBUG("SEC Received %d Packets", num_rx);
+	DPAA_SEC_DP_DEBUG("SEC Received %d Packets\n", num_rx);
 
 	return num_rx;
 }
@@ -2157,7 +2158,7 @@ dpaa_sec_queue_pair_setup(struct rte_cryptodev *dev, uint16_t qp_id,
 							NULL, NULL, NULL, NULL,
 							SOCKET_ID_ANY, 0);
 		if (!qp->ctx_pool) {
-			DPAA_SEC_ERR("%s create failed", str);
+			DPAA_SEC_ERR("%s create failed\n", str);
 			return -ENOMEM;
 		}
 	} else
@@ -2458,7 +2459,7 @@ dpaa_sec_aead_init(struct rte_cryptodev *dev __rte_unused,
 	session->aead_key.data = rte_zmalloc(NULL, xform->aead.key.length,
 					     RTE_CACHE_LINE_SIZE);
 	if (session->aead_key.data == NULL && xform->aead.key.length > 0) {
-		DPAA_SEC_ERR("No Memory for aead key");
+		DPAA_SEC_ERR("No Memory for aead key\n");
 		return -ENOMEM;
 	}
 	session->aead_key.length = xform->aead.key.length;
@@ -2507,7 +2508,7 @@ dpaa_sec_detach_rxq(struct dpaa_sec_dev_private *qi, struct qman_fq *fq)
 	for (i = 0; i < RTE_DPAA_MAX_RX_QUEUE; i++) {
 		if (&qi->inq[i] == fq) {
 			if (qman_retire_fq(fq, NULL) != 0)
-				DPAA_SEC_DEBUG("Queue is not retired");
+				DPAA_SEC_DEBUG("Queue is not retired\n");
 			qman_oos_fq(fq);
 			qi->inq_attach[i] = 0;
 			return 0;
@@ -3446,7 +3447,7 @@ dpaa_sec_process_atomic_event(void *event,
 	/* Save active dqrr entries */
 	index = ((uintptr_t)dqrr >> 6) & (16/*QM_DQRR_SIZE*/ - 1);
 	DPAA_PER_LCORE_DQRR_SIZE++;
-	DPAA_PER_LCORE_DQRR_HELD |= UINT64_C(1) << index;
+	DPAA_PER_LCORE_DQRR_HELD |= 1 << index;
 	DPAA_PER_LCORE_DQRR_MBUF(index) = ctx->op->sym->m_src;
 	ev->impl_opaque = index + 1;
 	*dpaa_seqn(ctx->op->sym->m_src) = (uint32_t)index + 1;
@@ -3482,7 +3483,7 @@ dpaa_sec_eventq_attach(const struct rte_cryptodev *dev,
 		qp->outq.cb.dqrr_dpdk_cb = dpaa_sec_process_atomic_event;
 		break;
 	case RTE_SCHED_TYPE_ORDERED:
-		DPAA_SEC_ERR("Ordered queue schedule type is not supported");
+		DPAA_SEC_ERR("Ordered queue schedule type is not supported\n");
 		return -ENOTSUP;
 	default:
 		opts.fqd.fq_ctrl |= QM_FQCTRL_AVOIDBLOCK;
@@ -3581,7 +3582,7 @@ check_devargs_handler(__rte_unused const char *key, const char *value,
 	dpaa_sec_dp_dump = atoi(value);
 	if (dpaa_sec_dp_dump > DPAA_SEC_DP_FULL_DUMP) {
 		DPAA_SEC_WARN("WARN: DPAA_SEC_DP_DUMP_LEVEL is not "
-			      "supported, changing to FULL error prints");
+			      "supported, changing to FULL error prints\n");
 		dpaa_sec_dp_dump = DPAA_SEC_DP_FULL_DUMP;
 	}
 
@@ -3644,7 +3645,7 @@ dpaa_sec_dev_init(struct rte_cryptodev *cryptodev)
 
 	ret = munmap(internals->sec_hw, MAP_SIZE);
 	if (ret)
-		DPAA_SEC_WARN("munmap failed");
+		DPAA_SEC_WARN("munmap failed\n");
 
 	close(map_fd);
 	cryptodev->driver_id = dpaa_cryptodev_driver_id;
@@ -3712,7 +3713,7 @@ dpaa_sec_dev_init(struct rte_cryptodev *cryptodev)
 	return 0;
 
 init_error:
-	DPAA_SEC_ERR("driver %s: create failed", cryptodev->data->name);
+	DPAA_SEC_ERR("driver %s: create failed\n", cryptodev->data->name);
 
 	rte_free(cryptodev->security_ctx);
 	return -EFAULT;

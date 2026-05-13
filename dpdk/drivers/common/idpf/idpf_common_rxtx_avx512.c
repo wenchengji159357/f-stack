@@ -137,10 +137,8 @@ idpf_singleq_rearm(struct idpf_rx_queue *rxq)
 
 	rxdp += rxq->rxrearm_start;
 
-	if (unlikely(cache == NULL)) {
-		idpf_singleq_rearm_common(rxq);
-		return;
-	}
+	if (unlikely(cache == NULL))
+		return idpf_singleq_rearm_common(rxq);
 
 	/* We need to pull 'n' more MBUFs into the software ring from mempool
 	 * We inline the mempool function here, so we can vectorize the copy
@@ -609,10 +607,8 @@ idpf_splitq_rearm(struct idpf_rx_queue *rx_bufq)
 
 	rxdp += rx_bufq->rxrearm_start;
 
-	if (unlikely(!cache)) {
-		idpf_splitq_rearm_common(rx_bufq);
-		return;
-	}
+	if (unlikely(!cache))
+		return idpf_splitq_rearm_common(rx_bufq);
 
 	/* We need to pull 'n' more MBUFs into the software ring from mempool
 	 * We inline the mempool function here, so we can vectorize the copy
@@ -1047,7 +1043,6 @@ idpf_tx_singleq_free_bufs_avx512(struct idpf_tx_queue *txq)
 		uint32_t copied = 0;
 		/* n is multiple of 32 */
 		while (copied < n) {
-#ifdef RTE_ARCH_64
 			const __m512i a = _mm512_loadu_si512(&txep[copied]);
 			const __m512i b = _mm512_loadu_si512(&txep[copied + 8]);
 			const __m512i c = _mm512_loadu_si512(&txep[copied + 16]);
@@ -1057,12 +1052,6 @@ idpf_tx_singleq_free_bufs_avx512(struct idpf_tx_queue *txq)
 			_mm512_storeu_si512(&cache_objs[copied + 8], b);
 			_mm512_storeu_si512(&cache_objs[copied + 16], c);
 			_mm512_storeu_si512(&cache_objs[copied + 24], d);
-#else
-			const __m512i a = _mm512_loadu_si512(&txep[copied]);
-			const __m512i b = _mm512_loadu_si512(&txep[copied + 16]);
-			_mm512_storeu_si512(&cache_objs[copied], a);
-			_mm512_storeu_si512(&cache_objs[copied + 16], b);
-#endif
 			copied += 32;
 		}
 		cache->len += n;

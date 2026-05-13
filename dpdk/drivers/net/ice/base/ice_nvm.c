@@ -72,7 +72,6 @@ ice_read_flat_nvm(struct ice_hw *hw, u32 offset, u32 *length, u8 *data,
 	enum ice_status status;
 	u32 inlen = *length;
 	u32 bytes_read = 0;
-	int retry_cnt = 0;
 	bool last_cmd;
 
 	ice_debug(hw, ICE_DBG_TRACE, "%s\n", __func__);
@@ -107,24 +106,11 @@ ice_read_flat_nvm(struct ice_hw *hw, u32 offset, u32 *length, u8 *data,
 					 offset, (u16)read_size,
 					 data + bytes_read, last_cmd,
 					 read_shadow_ram, NULL);
-		if (status) {
-			if (hw->adminq.sq_last_status != ICE_AQ_RC_EBUSY ||
-			    retry_cnt > ICE_SQ_SEND_MAX_EXECUTE)
-				break;
-			ice_debug(hw, ICE_DBG_NVM,
-				  "NVM read EBUSY error, retry %d\n",
-				  retry_cnt + 1);
-			ice_release_nvm(hw);
-			msleep(ICE_SQ_SEND_DELAY_TIME_MS);
-			status = ice_acquire_nvm(hw, ICE_RES_READ);
-			if (status)
-				break;
-			retry_cnt++;
-		} else {
-			bytes_read += read_size;
-			offset += read_size;
-			retry_cnt = 0;
-		}
+		if (status)
+			break;
+
+		bytes_read += read_size;
+		offset += read_size;
 	} while (!last_cmd);
 
 	*length = bytes_read;
@@ -471,8 +457,6 @@ enum ice_status ice_read_sr_word(struct ice_hw *hw, u16 offset, u16 *data)
 	return status;
 }
 
-#define check_add_overflow __builtin_add_overflow
-
 /**
  * ice_get_pfa_module_tlv - Reads sub module TLV from NVM PFA
  * @hw: pointer to hardware structure
@@ -489,7 +473,8 @@ ice_get_pfa_module_tlv(struct ice_hw *hw, u16 *module_tlv, u16 *module_tlv_len,
 		       u16 module_type)
 {
 	enum ice_status status;
-	u16 pfa_len, pfa_ptr, next_tlv, max_tlv;
+	u16 pfa_len, pfa_ptr;
+	u16 next_tlv;
 
 	status = ice_read_sr_word(hw, ICE_SR_PFA_PTR, &pfa_ptr);
 	if (status != ICE_SUCCESS) {
@@ -501,54 +486,38 @@ ice_get_pfa_module_tlv(struct ice_hw *hw, u16 *module_tlv, u16 *module_tlv_len,
 		ice_debug(hw, ICE_DBG_INIT, "Failed to read PFA length.\n");
 		return status;
 	}
-
-	if (check_add_overflow(pfa_ptr, (u16)(pfa_len - 1), &max_tlv)) {
-		ice_debug(hw, ICE_DBG_INIT, "PFA starts at offset %u. PFA length of %u caused 16-bit arithmetic overflow.\n",
-				  pfa_ptr, pfa_len);
-		return ICE_ERR_INVAL_SIZE;
-	}
-
-	/* The Preserved Fields Area contains a sequence of TLVs which define
-	 * its contents. The PFA length includes all of the TLVs, plus its
-	 * initial length word itself, *and* one final word at the end of all
-	 * of the TLVs.
-	 *
-	 * Starting with first TLV after PFA length, iterate through the list
+	/* Starting with first TLV after PFA length, iterate through the list
 	 * of TLVs to find the requested one.
 	 */
 	next_tlv = pfa_ptr + 1;
-	while (next_tlv < max_tlv) {
+	while (next_tlv < pfa_ptr + pfa_len) {
 		u16 tlv_sub_module_type;
 		u16 tlv_len;
 
 		/* Read TLV type */
-		status = ice_read_sr_word(hw, (u16)next_tlv,
-					  &tlv_sub_module_type);
-		if (status) {
+		status = ice_read_sr_word(hw, next_tlv, &tlv_sub_module_type);
+		if (status != ICE_SUCCESS) {
 			ice_debug(hw, ICE_DBG_INIT, "Failed to read TLV type.\n");
 			break;
 		}
 		/* Read TLV length */
-		status = ice_read_sr_word(hw, (u16)(next_tlv + 1), &tlv_len);
+		status = ice_read_sr_word(hw, next_tlv + 1, &tlv_len);
 		if (status != ICE_SUCCESS) {
 			ice_debug(hw, ICE_DBG_INIT, "Failed to read TLV length.\n");
 			break;
 		}
 		if (tlv_sub_module_type == module_type) {
 			if (tlv_len) {
-				*module_tlv = (u16)next_tlv;
+				*module_tlv = next_tlv;
 				*module_tlv_len = tlv_len;
 				return ICE_SUCCESS;
 			}
 			return ICE_ERR_INVAL_SIZE;
 		}
-
-		if (check_add_overflow(next_tlv, (u16)2, &next_tlv) ||
-		    check_add_overflow(next_tlv, tlv_len, &next_tlv)) {
-			ice_debug(hw, ICE_DBG_INIT, "TLV of type %u and length 0x%04x caused 16-bit arithmetic overflow. The PFA starts at 0x%04x and has length of 0x%04x\n",
-					  tlv_sub_module_type, tlv_len, pfa_ptr, pfa_len);
-			return ICE_ERR_INVAL_SIZE;
-		}
+		/* Check next TLV, i.e. current TLV pointer + length + 2 words
+		 * (for current TLV's type and length)
+		 */
+		next_tlv = next_tlv + tlv_len + 2;
 	}
 	/* Module does not exist */
 	return ICE_ERR_DOES_NOT_EXIST;
@@ -780,7 +749,7 @@ ice_get_orom_civd_data(struct ice_hw *hw, enum ice_bank_select bank,
 				       orom_data, hw->flash.banks.orom_size);
 	if (status) {
 		ice_debug(hw, ICE_DBG_NVM, "Unable to read Option ROM data\n");
-		goto exit_error;;
+		return status;
 	}
 
 	/* Scan the memory buffer to locate the CIVD data section */
@@ -804,8 +773,7 @@ ice_get_orom_civd_data(struct ice_hw *hw, enum ice_bank_select bank,
 		if (sum) {
 			ice_debug(hw, ICE_DBG_NVM, "Found CIVD data with invalid checksum of %u\n",
 				  sum);
-			status = ICE_ERR_NVM;
-			goto exit_error;
+			goto err_invalid_checksum;
 		}
 
 		*civd = *tmp;
@@ -813,12 +781,11 @@ ice_get_orom_civd_data(struct ice_hw *hw, enum ice_bank_select bank,
 		return ICE_SUCCESS;
 	}
 
-	status = ICE_ERR_NVM;
 	ice_debug(hw, ICE_DBG_NVM, "Unable to locate CIVD data within the Option ROM\n");
 
-exit_error:
+err_invalid_checksum:
 	ice_free(hw, orom_data);
-	return status;
+	return ICE_ERR_NVM;
 }
 
 /**

@@ -118,8 +118,8 @@ cnxk_setup_event_ports(const struct rte_eventdev *event_dev,
 	return 0;
 hws_fini:
 	for (i = i - 1; i >= 0; i--) {
-		rte_free(cnxk_sso_hws_get_cookie(event_dev->data->ports[i]));
 		event_dev->data->ports[i] = NULL;
+		rte_free(cnxk_sso_hws_get_cookie(event_dev->data->ports[i]));
 	}
 	return -ENOMEM;
 }
@@ -162,17 +162,16 @@ cnxk_sso_dev_validate(const struct rte_eventdev *event_dev, uint32_t deq_depth,
 
 	deq_tmo_ns = conf->dequeue_timeout_ns;
 
-	if (deq_tmo_ns && (deq_tmo_ns < dev->min_dequeue_timeout_ns ||
-			   deq_tmo_ns > dev->max_dequeue_timeout_ns)) {
+	if (deq_tmo_ns == 0)
+		deq_tmo_ns = dev->min_dequeue_timeout_ns;
+	if (deq_tmo_ns < dev->min_dequeue_timeout_ns ||
+	    deq_tmo_ns > dev->max_dequeue_timeout_ns) {
 		plt_err("Unsupported dequeue timeout requested");
 		return -EINVAL;
 	}
 
-	if (conf->event_dev_cfg & RTE_EVENT_DEV_CFG_PER_DEQUEUE_TIMEOUT) {
-		if (deq_tmo_ns == 0)
-			deq_tmo_ns = dev->min_dequeue_timeout_ns;
+	if (conf->event_dev_cfg & RTE_EVENT_DEV_CFG_PER_DEQUEUE_TIMEOUT)
 		dev->is_timeout_deq = 1;
-	}
 
 	dev->deq_tmo_ns = deq_tmo_ns;
 
@@ -554,9 +553,6 @@ parse_list(const char *value, void *opaque, param_parse_t fn)
 	char *end = NULL;
 	char *f = s;
 
-	if (s == NULL)
-		return;
-
 	while (*s) {
 		if (*s == '[')
 			start = s;
@@ -667,7 +663,7 @@ cnxk_sso_init(struct rte_eventdev *event_dev)
 	}
 
 	dev->is_timeout_deq = 0;
-	dev->min_dequeue_timeout_ns = USEC2NSEC(1);
+	dev->min_dequeue_timeout_ns = 0;
 	dev->max_dequeue_timeout_ns = USEC2NSEC(0x3FF);
 	dev->max_num_events = -1;
 	dev->nb_event_queues = 0;

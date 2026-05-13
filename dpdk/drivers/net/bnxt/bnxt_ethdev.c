@@ -1673,8 +1673,10 @@ bnxt_uninit_locks(struct bnxt *bp)
 	pthread_mutex_destroy(&bp->def_cp_lock);
 	pthread_mutex_destroy(&bp->health_check_lock);
 	pthread_mutex_destroy(&bp->err_recovery_lock);
-	if (bp->rep_info)
+	if (bp->rep_info) {
+		pthread_mutex_destroy(&bp->rep_info->vfr_lock);
 		pthread_mutex_destroy(&bp->rep_info->vfr_start_lock);
+	}
 }
 
 static void bnxt_drv_uninit(struct bnxt *bp)
@@ -4006,6 +4008,7 @@ static int bnxt_get_module_eeprom(struct rte_eth_dev *dev,
 
 	switch (module_info[0]) {
 	case SFF_MODULE_ID_SFP:
+		module_info[SFF_DIAG_SUPPORT_OFFSET] = 0;
 		if (module_info[SFF_DIAG_SUPPORT_OFFSET]) {
 			pg_addr[2] = I2C_DEV_ADDR_A2;
 			pg_addr[3] = I2C_DEV_ADDR_A2;
@@ -4747,7 +4750,7 @@ static int bnxt_alloc_ctx_mem_blk(struct bnxt *bp,
 {
 	struct bnxt_ring_mem_info *rmem = &ctx_pg->ring_mem;
 	const struct rte_memzone *mz = NULL;
-	char name[RTE_MEMZONE_NAMESIZE];
+	char mz_name[RTE_MEMZONE_NAMESIZE];
 	rte_iova_t mz_phys_addr;
 	uint64_t valid_bits = 0;
 	uint32_t sz;
@@ -4759,19 +4762,6 @@ static int bnxt_alloc_ctx_mem_blk(struct bnxt *bp,
 	rmem->nr_pages = RTE_ALIGN_MUL_CEIL(mem_size, BNXT_PAGE_SIZE) /
 			 BNXT_PAGE_SIZE;
 	rmem->page_size = BNXT_PAGE_SIZE;
-
-	snprintf(name, RTE_MEMZONE_NAMESIZE, "bnxt_ctx_pg_arr%s_%x_%d",
-		 suffix, idx, bp->eth_dev->data->port_id);
-	ctx_pg->ctx_pg_arr = rte_zmalloc(name, sizeof(void *) * rmem->nr_pages, 0);
-	if (ctx_pg->ctx_pg_arr == NULL)
-		return -ENOMEM;
-
-	snprintf(name, RTE_MEMZONE_NAMESIZE, "bnxt_ctx_dma_arr%s_%x_%d",
-		 suffix, idx, bp->eth_dev->data->port_id);
-	ctx_pg->ctx_dma_arr = rte_zmalloc(name, sizeof(rte_iova_t *) * rmem->nr_pages, 0);
-	if (ctx_pg->ctx_dma_arr == NULL)
-		return -ENOMEM;
-
 	rmem->pg_arr = ctx_pg->ctx_pg_arr;
 	rmem->dma_arr = ctx_pg->ctx_dma_arr;
 	rmem->flags = BNXT_RMEM_VALID_PTE_FLAG;
@@ -4779,13 +4769,13 @@ static int bnxt_alloc_ctx_mem_blk(struct bnxt *bp,
 	valid_bits = PTU_PTE_VALID;
 
 	if (rmem->nr_pages > 1) {
-		snprintf(name, RTE_MEMZONE_NAMESIZE,
+		snprintf(mz_name, RTE_MEMZONE_NAMESIZE,
 			 "bnxt_ctx_pg_tbl%s_%x_%d",
 			 suffix, idx, bp->eth_dev->data->port_id);
-		name[RTE_MEMZONE_NAMESIZE - 1] = 0;
-		mz = rte_memzone_lookup(name);
+		mz_name[RTE_MEMZONE_NAMESIZE - 1] = 0;
+		mz = rte_memzone_lookup(mz_name);
 		if (!mz) {
-			mz = rte_memzone_reserve_aligned(name,
+			mz = rte_memzone_reserve_aligned(mz_name,
 						rmem->nr_pages * 8,
 						bp->eth_dev->device->numa_node,
 						RTE_MEMZONE_2MB |
@@ -4804,11 +4794,11 @@ static int bnxt_alloc_ctx_mem_blk(struct bnxt *bp,
 		rmem->pg_tbl_mz = mz;
 	}
 
-	snprintf(name, RTE_MEMZONE_NAMESIZE, "bnxt_ctx_%s_%x_%d",
+	snprintf(mz_name, RTE_MEMZONE_NAMESIZE, "bnxt_ctx_%s_%x_%d",
 		 suffix, idx, bp->eth_dev->data->port_id);
-	mz = rte_memzone_lookup(name);
+	mz = rte_memzone_lookup(mz_name);
 	if (!mz) {
-		mz = rte_memzone_reserve_aligned(name,
+		mz = rte_memzone_reserve_aligned(mz_name,
 						 mem_size,
 						 bp->eth_dev->device->numa_node,
 						 RTE_MEMZONE_1GB |
@@ -4854,17 +4844,6 @@ static void bnxt_free_ctx_mem(struct bnxt *bp)
 		return;
 
 	bp->ctx->flags &= ~BNXT_CTX_FLAG_INITED;
-	rte_free(bp->ctx->qp_mem.ctx_pg_arr);
-	rte_free(bp->ctx->srq_mem.ctx_pg_arr);
-	rte_free(bp->ctx->cq_mem.ctx_pg_arr);
-	rte_free(bp->ctx->vnic_mem.ctx_pg_arr);
-	rte_free(bp->ctx->stat_mem.ctx_pg_arr);
-	rte_free(bp->ctx->qp_mem.ctx_dma_arr);
-	rte_free(bp->ctx->srq_mem.ctx_dma_arr);
-	rte_free(bp->ctx->cq_mem.ctx_dma_arr);
-	rte_free(bp->ctx->vnic_mem.ctx_dma_arr);
-	rte_free(bp->ctx->stat_mem.ctx_dma_arr);
-
 	rte_memzone_free(bp->ctx->qp_mem.ring_mem.mz);
 	rte_memzone_free(bp->ctx->srq_mem.ring_mem.mz);
 	rte_memzone_free(bp->ctx->cq_mem.ring_mem.mz);
@@ -4877,8 +4856,6 @@ static void bnxt_free_ctx_mem(struct bnxt *bp)
 	rte_memzone_free(bp->ctx->stat_mem.ring_mem.pg_tbl_mz);
 
 	for (i = 0; i < bp->ctx->tqm_fp_rings_count + 1; i++) {
-		rte_free(bp->ctx->tqm_mem[i]->ctx_pg_arr);
-		rte_free(bp->ctx->tqm_mem[i]->ctx_dma_arr);
 		if (bp->ctx->tqm_mem[i])
 			rte_memzone_free(bp->ctx->tqm_mem[i]->ring_mem.mz);
 	}
@@ -6196,6 +6173,13 @@ static int bnxt_init_rep_info(struct bnxt *bp)
 	for (i = 0; i < BNXT_MAX_CFA_CODE; i++)
 		bp->cfa_code_map[i] = BNXT_VF_IDX_INVALID;
 
+	rc = pthread_mutex_init(&bp->rep_info->vfr_lock, NULL);
+	if (rc) {
+		PMD_DRV_LOG(ERR, "Unable to initialize vfr_lock\n");
+		bnxt_free_rep_info(bp);
+		return rc;
+	}
+
 	rc = pthread_mutex_init(&bp->rep_info->vfr_start_lock, NULL);
 	if (rc) {
 		PMD_DRV_LOG(ERR, "Unable to initialize vfr_start_lock\n");
@@ -6440,8 +6424,6 @@ static int bnxt_pci_probe(struct rte_pci_driver *pci_drv __rte_unused,
 static int bnxt_pci_remove(struct rte_pci_device *pci_dev)
 {
 	struct rte_eth_dev *eth_dev;
-	uint16_t port_id;
-	int rc = 0;
 
 	eth_dev = rte_eth_dev_allocated(pci_dev->device.name);
 	if (!eth_dev)
@@ -6451,20 +6433,14 @@ static int bnxt_pci_remove(struct rte_pci_device *pci_dev)
 			   * +ve value will at least help in proper cleanup
 			   */
 
+	PMD_DRV_LOG(DEBUG, "BNXT Port:%d pci remove\n", eth_dev->data->port_id);
 	if (rte_eal_process_type() == RTE_PROC_PRIMARY) {
-		RTE_ETH_FOREACH_DEV_OF(port_id, &pci_dev->device) {
-			PMD_DRV_LOG(DEBUG, "BNXT Port:%d pci remove", port_id);
-			eth_dev = &rte_eth_devices[port_id];
-			if (eth_dev->data->dev_flags & RTE_ETH_DEV_REPRESENTOR)
-				rc = rte_eth_dev_destroy(eth_dev,
-							 bnxt_representor_uninit);
-			else
-				rc = rte_eth_dev_destroy(eth_dev,
-							 bnxt_dev_uninit);
-			if (rc != 0)
-				return rc;
-		}
-		return rc;
+		if (eth_dev->data->dev_flags & RTE_ETH_DEV_REPRESENTOR)
+			return rte_eth_dev_destroy(eth_dev,
+						   bnxt_representor_uninit);
+		else
+			return rte_eth_dev_destroy(eth_dev,
+						   bnxt_dev_uninit);
 	} else {
 		return rte_eth_dev_pci_generic_remove(pci_dev, NULL);
 	}

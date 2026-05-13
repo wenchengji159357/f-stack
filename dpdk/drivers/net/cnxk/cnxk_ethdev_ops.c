@@ -20,7 +20,8 @@ cnxk_nix_info_get(struct rte_eth_dev *eth_dev, struct rte_eth_dev_info *devinfo)
 	devinfo->max_tx_queues = RTE_MAX_QUEUES_PER_PORT;
 	devinfo->max_mac_addrs = dev->max_mac_entries;
 	devinfo->max_vfs = pci_dev->max_vfs;
-	devinfo->max_mtu = devinfo->max_rx_pktlen - CNXK_NIX_L2_OVERHEAD;
+	devinfo->max_mtu = devinfo->max_rx_pktlen -
+				(RTE_ETHER_HDR_LEN + RTE_ETHER_CRC_LEN);
 	devinfo->min_mtu = devinfo->min_rx_bufsize - CNXK_NIX_L2_OVERHEAD;
 
 	devinfo->rx_offload_capa = dev->rx_offload_capa;
@@ -447,13 +448,6 @@ cnxk_nix_mac_addr_set(struct rte_eth_dev *eth_dev, struct rte_ether_addr *addr)
 			roc_nix_npc_mac_addr_set(nix, dev->mac_addr);
 			goto exit;
 		}
-
-		if (eth_dev->data->promiscuous) {
-			rc = roc_nix_mac_promisc_mode_enable(nix, true);
-			if (rc)
-				plt_err("Failed to setup promisc mode in mac, rc=%d(%s)", rc,
-					roc_error_msg_get(rc));
-		}
 	}
 
 	/* Update mac address to cnxk ethernet device */
@@ -528,7 +522,7 @@ cnxk_nix_sq_flush(struct rte_eth_dev *eth_dev)
 		/* Wait for sq entries to be flushed */
 		rc = roc_nix_tm_sq_flush_spin(sq);
 		if (rc) {
-			plt_err("Failed to drain sq, rc=%d", rc);
+			plt_err("Failed to drain sq, rc=%d\n", rc);
 			goto exit;
 		}
 		if (data->tx_queue_state[i] == RTE_ETH_QUEUE_STATE_STARTED) {
@@ -550,9 +544,8 @@ cnxk_nix_mtu_set(struct rte_eth_dev *eth_dev, uint16_t mtu)
 	struct cnxk_eth_dev *dev = cnxk_eth_pmd_priv(eth_dev);
 	struct rte_eth_dev_data *data = eth_dev->data;
 	struct roc_nix *nix = &dev->nix;
-	struct cnxk_eth_rxq_sp *rxq_sp;
-	uint32_t buffsz = 0;
 	int rc = -EINVAL;
+	uint32_t buffsz;
 
 	frame_size += CNXK_NIX_TIMESYNC_RX_OFFSET * dev->ptp_en;
 
@@ -568,24 +561,8 @@ cnxk_nix_mtu_set(struct rte_eth_dev *eth_dev, uint16_t mtu)
 		goto exit;
 	}
 
-	if (!eth_dev->data->nb_rx_queues)
-		goto skip_buffsz_check;
-
-	/* Perform buff size check */
-	if (data->min_rx_buf_size) {
-		buffsz = data->min_rx_buf_size;
-	} else if (eth_dev->data->rx_queues && eth_dev->data->rx_queues[0]) {
-		rxq_sp = cnxk_eth_rxq_to_sp(data->rx_queues[0]);
-
-		if (rxq_sp->qconf.mp)
-			buffsz = rte_pktmbuf_data_room_size(rxq_sp->qconf.mp);
-	}
-
-	/* Skip validation if RQ's are not yet setup */
-	if (!buffsz)
-		goto skip_buffsz_check;
-
-	buffsz -= RTE_PKTMBUF_HEADROOM;
+	buffsz = data->min_rx_buf_size - RTE_PKTMBUF_HEADROOM;
+	old_frame_size = data->mtu + CNXK_NIX_L2_OVERHEAD;
 
 	/* Refuse MTU that requires the support of scattered packets
 	 * when this feature has not been enabled before.
@@ -603,8 +580,6 @@ cnxk_nix_mtu_set(struct rte_eth_dev *eth_dev, uint16_t mtu)
 		goto exit;
 	}
 
-skip_buffsz_check:
-	old_frame_size = data->mtu + CNXK_NIX_L2_OVERHEAD;
 	/* if new MTU was smaller than old one, then flush all SQs before MTU change */
 	if (old_frame_size > frame_size) {
 		if (data->dev_started) {
@@ -616,9 +591,19 @@ skip_buffsz_check:
 
 	frame_size -= RTE_ETHER_CRC_LEN;
 
-	/* Set frame size on Rx */
+	/* Update mtu on Tx */
+	rc = roc_nix_mac_mtu_set(nix, frame_size);
+	if (rc) {
+		plt_err("Failed to set MTU, rc=%d", rc);
+		goto exit;
+	}
+
+	/* Sync same frame size on Rx */
 	rc = roc_nix_mac_max_rx_len_set(nix, frame_size);
 	if (rc) {
+		/* Rollback to older mtu */
+		roc_nix_mac_mtu_set(nix,
+				    old_frame_size - RTE_ETHER_CRC_LEN);
 		plt_err("Failed to max Rx frame length, rc=%d", rc);
 		goto exit;
 	}

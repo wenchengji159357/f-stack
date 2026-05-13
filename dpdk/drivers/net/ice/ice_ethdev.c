@@ -1619,10 +1619,6 @@ ice_setup_vsi(struct ice_pf *pf, enum ice_vsi_type type)
 		 * by ice_init_hw
 		 */
 		vsi_ctx.info.sw_id = hw->port_info->sw_id;
-		vsi_ctx.info.sw_flags = ICE_AQ_VSI_SW_FLAG_LOCAL_LB;
-		vsi_ctx.info.sw_flags |= ICE_AQ_VSI_SW_FLAG_SRC_PRUNE;
-		cfg = ICE_AQ_VSI_PROP_SW_VALID;
-		vsi_ctx.info.valid_sections |= rte_cpu_to_le_16(cfg);
 		vsi_ctx.info.sw_flags2 = ICE_AQ_VSI_SW_FLAG_LAN_ENA;
 		/* Allow all untagged or tagged packets */
 		vsi_ctx.info.inner_vlan_flags = ICE_AQ_VSI_INNER_VLAN_TX_MODE_ALL;
@@ -1808,7 +1804,6 @@ ice_pf_setup(struct ice_pf *pf)
 	}
 
 	pf->main_vsi = vsi;
-	rte_spinlock_init(&pf->link_lock);
 
 	return 0;
 }
@@ -1871,7 +1866,7 @@ no_dsn:
 
 	strncpy(pkg_file, ICE_PKG_FILE_DEFAULT, ICE_MAX_PKG_FILENAME_SIZE);
 	if (rte_firmware_read(pkg_file, &buf, &bufsz) < 0) {
-		PMD_INIT_LOG(ERR, "failed to search file path");
+		PMD_INIT_LOG(ERR, "failed to search file path\n");
 		return -1;
 	}
 
@@ -1880,7 +1875,7 @@ load_fw:
 
 	err = ice_copy_and_init_pkg(hw, buf, bufsz);
 	if (!ice_is_init_pkg_successful(err)) {
-		PMD_INIT_LOG(ERR, "ice_copy_and_init_hw failed: %d", err);
+		PMD_INIT_LOG(ERR, "ice_copy_and_init_hw failed: %d\n", err);
 		free(buf);
 		return -1;
 	}
@@ -2078,7 +2073,7 @@ static int ice_parse_devargs(struct rte_eth_dev *dev)
 
 	kvlist = rte_kvargs_parse(devargs->args, ice_valid_args);
 	if (kvlist == NULL) {
-		PMD_INIT_LOG(ERR, "Invalid kvargs key");
+		PMD_INIT_LOG(ERR, "Invalid kvargs key\n");
 		return -EINVAL;
 	}
 
@@ -2344,20 +2339,20 @@ ice_dev_init(struct rte_eth_dev *dev)
 	if (pos) {
 		if (rte_pci_read_config(pci_dev, &dsn_low, 4, pos + 4) < 0 ||
 				rte_pci_read_config(pci_dev, &dsn_high, 4, pos + 8) < 0) {
-			PMD_INIT_LOG(ERR, "Failed to read pci config space");
+			PMD_INIT_LOG(ERR, "Failed to read pci config space\n");
 		} else {
 			use_dsn = true;
 			dsn = (uint64_t)dsn_high << 32 | dsn_low;
 		}
 	} else {
-		PMD_INIT_LOG(ERR, "Failed to read device serial number");
+		PMD_INIT_LOG(ERR, "Failed to read device serial number\n");
 	}
 
 	ret = ice_load_pkg(pf->adapter, use_dsn, dsn);
 	if (ret == 0) {
 		ret = ice_init_hw_tbls(hw);
 		if (ret) {
-			PMD_INIT_LOG(ERR, "ice_init_hw_tbls failed: %d", ret);
+			PMD_INIT_LOG(ERR, "ice_init_hw_tbls failed: %d\n", ret);
 			rte_free(hw->pkg_copy);
 		}
 	}
@@ -2409,14 +2404,14 @@ ice_dev_init(struct rte_eth_dev *dev)
 
 	ret = ice_aq_stop_lldp(hw, true, false, NULL);
 	if (ret != ICE_SUCCESS)
-		PMD_INIT_LOG(DEBUG, "lldp has already stopped");
+		PMD_INIT_LOG(DEBUG, "lldp has already stopped\n");
 	ret = ice_init_dcb(hw, true);
 	if (ret != ICE_SUCCESS)
-		PMD_INIT_LOG(DEBUG, "Failed to init DCB");
+		PMD_INIT_LOG(DEBUG, "Failed to init DCB\n");
 	/* Forward LLDP packets to default VSI */
 	ret = ice_vsi_config_sw_lldp(vsi, true);
 	if (ret != ICE_SUCCESS)
-		PMD_INIT_LOG(DEBUG, "Failed to cfg lldp");
+		PMD_INIT_LOG(DEBUG, "Failed to cfg lldp\n");
 	/* register callback func to eal lib */
 	rte_intr_callback_register(intr_handle,
 				   ice_interrupt_handler, dev);
@@ -2443,7 +2438,7 @@ ice_dev_init(struct rte_eth_dev *dev)
 	if (hw->phy_cfg == ICE_PHY_E822) {
 		ret = ice_start_phy_timer_e822(hw, hw->pf_id, true);
 		if (ret)
-			PMD_INIT_LOG(ERR, "Failed to start phy timer");
+			PMD_INIT_LOG(ERR, "Failed to start phy timer\n");
 	}
 
 	if (!ad->is_safe_mode) {
@@ -2690,7 +2685,7 @@ ice_hash_moveout(struct ice_pf *pf, struct ice_rss_hash_cfg *cfg)
 	status = ice_rem_rss_cfg(hw, vsi->idx, cfg);
 	if (status && status != ICE_ERR_DOES_NOT_EXIST) {
 		PMD_DRV_LOG(ERR,
-			    "ice_rem_rss_cfg failed for VSI:%d, error:%d",
+			    "ice_rem_rss_cfg failed for VSI:%d, error:%d\n",
 			    vsi->idx, status);
 		return -EBUSY;
 	}
@@ -2711,7 +2706,7 @@ ice_hash_moveback(struct ice_pf *pf, struct ice_rss_hash_cfg *cfg)
 	status = ice_add_rss_cfg(hw, vsi->idx, cfg);
 	if (status) {
 		PMD_DRV_LOG(ERR,
-			    "ice_add_rss_cfg failed for VSI:%d, error:%d",
+			    "ice_add_rss_cfg failed for VSI:%d, error:%d\n",
 			    vsi->idx, status);
 		return -EBUSY;
 	}
@@ -3106,7 +3101,7 @@ ice_rem_rss_cfg_wrap(struct ice_pf *pf, uint16_t vsi_id,
 
 	ret = ice_rem_rss_cfg(hw, vsi_id, cfg);
 	if (ret && ret != ICE_ERR_DOES_NOT_EXIST)
-		PMD_DRV_LOG(ERR, "remove rss cfg failed");
+		PMD_DRV_LOG(ERR, "remove rss cfg failed\n");
 
 	ice_rem_rss_cfg_post(pf, cfg->addl_hdrs);
 
@@ -3122,15 +3117,15 @@ ice_add_rss_cfg_wrap(struct ice_pf *pf, uint16_t vsi_id,
 
 	ret = ice_add_rss_cfg_pre(pf, cfg->addl_hdrs);
 	if (ret)
-		PMD_DRV_LOG(ERR, "add rss cfg pre failed");
+		PMD_DRV_LOG(ERR, "add rss cfg pre failed\n");
 
 	ret = ice_add_rss_cfg(hw, vsi_id, cfg);
 	if (ret)
-		PMD_DRV_LOG(ERR, "add rss cfg failed");
+		PMD_DRV_LOG(ERR, "add rss cfg failed\n");
 
 	ret = ice_add_rss_cfg_post(pf, cfg);
 	if (ret)
-		PMD_DRV_LOG(ERR, "add rss cfg post failed");
+		PMD_DRV_LOG(ERR, "add rss cfg post failed\n");
 
 	return 0;
 }
@@ -3320,7 +3315,7 @@ ice_get_default_rss_key(uint8_t *rss_key, uint32_t rss_key_size)
 	if (rss_key_size > sizeof(default_key)) {
 		PMD_DRV_LOG(WARNING,
 			    "requested size %u is larger than default %zu, "
-			    "only %zu bytes are gotten for key",
+			    "only %zu bytes are gotten for key\n",
 			    rss_key_size, sizeof(default_key),
 			    sizeof(default_key));
 	}
@@ -3355,12 +3350,12 @@ static int ice_init_rss(struct ice_pf *pf)
 
 	if (nb_q == 0) {
 		PMD_DRV_LOG(WARNING,
-			"RSS is not supported as rx queues number is zero");
+			"RSS is not supported as rx queues number is zero\n");
 		return 0;
 	}
 
 	if (is_safe_mode) {
-		PMD_DRV_LOG(WARNING, "RSS is not supported in safe mode");
+		PMD_DRV_LOG(WARNING, "RSS is not supported in safe mode\n");
 		return 0;
 	}
 
@@ -3626,31 +3621,17 @@ ice_rxq_intr_setup(struct rte_eth_dev *dev)
 	return 0;
 }
 
-static enum ice_status
-ice_get_link_info_safe(struct ice_pf *pf, bool ena_lse,
-		       struct ice_link_status *link)
-{
-	struct ice_hw *hw = ICE_PF_TO_HW(pf);
-	int ret;
-
-	rte_spinlock_lock(&pf->link_lock);
-
-	ret = ice_aq_get_link_info(hw->port_info, ena_lse, link, NULL);
-
-	rte_spinlock_unlock(&pf->link_lock);
-
-	return ret;
-}
-
 static void
 ice_get_init_link_status(struct rte_eth_dev *dev)
 {
+	struct ice_hw *hw = ICE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
 	struct ice_pf *pf = ICE_DEV_PRIVATE_TO_PF(dev->data->dev_private);
 	bool enable_lse = dev->data->dev_conf.intr_conf.lsc ? true : false;
 	struct ice_link_status link_status;
 	int ret;
 
-	ret = ice_get_link_info_safe(pf, enable_lse, &link_status);
+	ret = ice_aq_get_link_info(hw->port_info, enable_lse,
+				   &link_status, NULL);
 	if (ret != ICE_SUCCESS) {
 		PMD_DRV_LOG(ERR, "Failed to get link info");
 		pf->init_link_up = false;
@@ -3754,10 +3735,7 @@ ice_dev_start(struct rte_eth_dev *dev)
 	ice_set_tx_function(dev);
 
 	mask = RTE_ETH_VLAN_STRIP_MASK | RTE_ETH_VLAN_FILTER_MASK |
-			RTE_ETH_VLAN_EXTEND_MASK;
-	if (ice_is_dvm_ena(hw))
-		mask |= RTE_ETH_QINQ_STRIP_MASK;
-
+			RTE_ETH_VLAN_EXTEND_MASK | RTE_ETH_QINQ_STRIP_MASK;
 	ret = ice_vlan_offload_set(dev, mask);
 	if (ret) {
 		PMD_INIT_LOG(ERR, "Unable to set VLAN offload");
@@ -3898,11 +3876,7 @@ ice_dev_info_get(struct rte_eth_dev *dev, struct rte_eth_dev_info *dev_info)
 			RTE_ETH_TX_OFFLOAD_TCP_CKSUM |
 			RTE_ETH_TX_OFFLOAD_SCTP_CKSUM |
 			RTE_ETH_TX_OFFLOAD_OUTER_IPV4_CKSUM |
-			RTE_ETH_TX_OFFLOAD_OUTER_UDP_CKSUM |
-			RTE_ETH_TX_OFFLOAD_VXLAN_TNL_TSO |
-			RTE_ETH_TX_OFFLOAD_GRE_TNL_TSO |
-			RTE_ETH_TX_OFFLOAD_IPIP_TNL_TSO |
-			RTE_ETH_TX_OFFLOAD_GENEVE_TNL_TSO;
+			RTE_ETH_TX_OFFLOAD_OUTER_UDP_CKSUM;
 		dev_info->flow_type_rss_offloads |= ICE_RSS_OFFLOAD_ALL;
 	}
 
@@ -4022,7 +3996,7 @@ ice_link_update(struct rte_eth_dev *dev, int wait_to_complete)
 {
 #define CHECK_INTERVAL 50  /* 50ms */
 #define MAX_REPEAT_TIME 40  /* 2s (40 * 50ms) in total */
-	struct ice_pf *pf = ICE_DEV_PRIVATE_TO_PF(dev->data->dev_private);
+	struct ice_hw *hw = ICE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
 	struct ice_link_status link_status;
 	struct rte_eth_link link, old;
 	int status;
@@ -4036,7 +4010,8 @@ ice_link_update(struct rte_eth_dev *dev, int wait_to_complete)
 
 	do {
 		/* Get link status information from hardware */
-		status = ice_get_link_info_safe(pf, enable_lse, &link_status);
+		status = ice_aq_get_link_info(hw->port_info, enable_lse,
+					      &link_status, NULL);
 		if (status != ICE_SUCCESS) {
 			link.link_speed = RTE_ETH_SPEED_NUM_100M;
 			link.link_duplex = RTE_ETH_LINK_FULL_DUPLEX;
@@ -4206,7 +4181,7 @@ ice_phy_conf_link(struct ice_hw *hw,
 		cfg.phy_type_low = phy_type_low & phy_caps->phy_type_low;
 		cfg.phy_type_high = phy_type_high & phy_caps->phy_type_high;
 	} else {
-		PMD_DRV_LOG(WARNING, "Invalid speed setting, set to default!");
+		PMD_DRV_LOG(WARNING, "Invalid speed setting, set to default!\n");
 		cfg.phy_type_low = phy_caps->phy_type_low;
 		cfg.phy_type_high = phy_caps->phy_type_high;
 	}
@@ -4827,35 +4802,19 @@ ice_vlan_offload_set(struct rte_eth_dev *dev, int mask)
 			ice_vsi_config_vlan_filter(vsi, false);
 	}
 
-	struct ice_hw *hw = ICE_VSI_TO_HW(vsi);
-	if (!ice_is_dvm_ena(hw)) {
-		if (mask & RTE_ETH_VLAN_STRIP_MASK) {
-			if (rxmode->offloads & RTE_ETH_RX_OFFLOAD_VLAN_STRIP)
-				ice_vsi_config_vlan_stripping(vsi, true);
-			else
-				ice_vsi_config_vlan_stripping(vsi, false);
-		}
+	if (mask & RTE_ETH_VLAN_STRIP_MASK) {
+		if (rxmode->offloads & RTE_ETH_RX_OFFLOAD_VLAN_STRIP)
+			ice_vsi_config_vlan_stripping(vsi, true);
+		else
+			ice_vsi_config_vlan_stripping(vsi, false);
+	}
 
-		if (mask & RTE_ETH_QINQ_STRIP_MASK) {
-			PMD_DRV_LOG(ERR, "Single VLAN mode (SVM) does not support qinq");
-			return -ENOTSUP;
-		}
-	} else {
-		if ((mask & RTE_ETH_VLAN_STRIP_MASK) |
-				(mask & RTE_ETH_QINQ_STRIP_MASK)) {
-			if (rxmode->offloads & (RTE_ETH_RX_OFFLOAD_VLAN_STRIP |
-						RTE_ETH_RX_OFFLOAD_QINQ_STRIP))
-				ice_vsi_config_outer_vlan_stripping(vsi, true);
-			else
-				ice_vsi_config_outer_vlan_stripping(vsi, false);
-		}
-
-		if (mask & RTE_ETH_QINQ_STRIP_MASK) {
-			if (rxmode->offloads & RTE_ETH_RX_OFFLOAD_QINQ_STRIP)
-				ice_vsi_config_vlan_stripping(vsi, true);
-			else
-				ice_vsi_config_vlan_stripping(vsi, false);
-		}
+	if (mask & RTE_ETH_QINQ_STRIP_MASK) {
+		/* Enable or disable outer VLAN stripping */
+		if (rxmode->offloads & RTE_ETH_RX_OFFLOAD_QINQ_STRIP)
+			ice_vsi_config_outer_vlan_stripping(vsi, true);
+		else
+			ice_vsi_config_outer_vlan_stripping(vsi, false);
 	}
 
 	return 0;
@@ -5661,7 +5620,7 @@ ice_get_module_info(struct rte_eth_dev *dev,
 		}
 		break;
 	default:
-		PMD_DRV_LOG(WARNING, "SFF Module Type not recognized.");
+		PMD_DRV_LOG(WARNING, "SFF Module Type not recognized.\n");
 		return -EINVAL;
 	}
 	return 0;
@@ -5732,7 +5691,7 @@ ice_get_module_eeprom(struct rte_eth_dev *dev,
 							   0, NULL);
 				PMD_DRV_LOG(DEBUG, "SFF %02X %02X %02X %X = "
 					"%02X%02X%02X%02X."
-					"%02X%02X%02X%02X (%X)",
+					"%02X%02X%02X%02X (%X)\n",
 					addr, offset, page, is_sfp,
 					value[0], value[1],
 					value[2], value[3],

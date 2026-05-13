@@ -150,9 +150,6 @@ nfp_net_start(struct rte_eth_dev *dev)
 		ctrl_extend |= NFP_NET_CFG_CTRL_IPSEC_SM_LOOKUP
 				| NFP_NET_CFG_CTRL_IPSEC_LM_LOOKUP;
 
-	if ((cap_extend & NFP_NET_CFG_CTRL_MULTI_PF) != 0 && pf_dev->multi_pf.enabled)
-		ctrl_extend |= NFP_NET_CFG_CTRL_MULTI_PF;
-
 	update = NFP_NET_CFG_UPDATE_GEN;
 	if (nfp_ext_reconfig(hw, ctrl_extend, update) != 0)
 		return -EIO;
@@ -204,40 +201,30 @@ error:
 static int
 nfp_net_set_link_up(struct rte_eth_dev *dev)
 {
-	int ret;
 	struct nfp_net_hw *hw;
 
 	hw = dev->data->dev_private;
 
 	if (rte_eal_process_type() == RTE_PROC_PRIMARY)
 		/* Configure the physical port down */
-		ret = nfp_eth_set_configured(hw->cpp, hw->nfp_idx, 1);
+		return nfp_eth_set_configured(hw->cpp, hw->nfp_idx, 1);
 	else
-		ret = nfp_eth_set_configured(dev->process_private, hw->nfp_idx, 1);
-	if (ret < 0)
-		return ret;
-
-	return 0;
+		return nfp_eth_set_configured(dev->process_private, hw->nfp_idx, 1);
 }
 
 /* Set the link down. */
 static int
 nfp_net_set_link_down(struct rte_eth_dev *dev)
 {
-	int ret;
 	struct nfp_net_hw *hw;
 
 	hw = dev->data->dev_private;
 
 	if (rte_eal_process_type() == RTE_PROC_PRIMARY)
 		/* Configure the physical port down */
-		ret = nfp_eth_set_configured(hw->cpp, hw->nfp_idx, 0);
+		return nfp_eth_set_configured(hw->cpp, hw->nfp_idx, 0);
 	else
-		ret = nfp_eth_set_configured(dev->process_private, hw->nfp_idx, 0);
-	if (ret < 0)
-		return ret;
-
-	return 0;
+		return nfp_eth_set_configured(dev->process_private, hw->nfp_idx, 0);
 }
 
 static uint8_t
@@ -323,66 +310,6 @@ nfp_net_keepalive_stop(struct nfp_multi_pf *multi_pf)
 	rte_eal_alarm_cancel(nfp_net_beat_timer, (void *)multi_pf);
 }
 
-static void
-nfp_net_uninit(struct rte_eth_dev *eth_dev)
-{
-	struct nfp_net_hw *net_hw;
-
-	net_hw = eth_dev->data->dev_private;
-	rte_free(net_hw->eth_xstats_base);
-	nfp_ipsec_uninit(eth_dev);
-}
-
-static void
-nfp_cleanup_port_app_fw_nic(struct nfp_pf_dev *pf_dev,
-		uint8_t id)
-{
-	struct rte_eth_dev *eth_dev;
-	struct nfp_app_fw_nic *app_fw_nic;
-
-	app_fw_nic = pf_dev->app_fw_priv;
-	if (app_fw_nic->ports[id] != NULL) {
-		eth_dev = app_fw_nic->ports[id]->eth_dev;
-		if (eth_dev != NULL)
-			nfp_net_uninit(eth_dev);
-
-		app_fw_nic->ports[id] = NULL;
-	}
-}
-
-static void
-nfp_uninit_app_fw_nic(struct nfp_pf_dev *pf_dev)
-{
-	nfp_cpp_area_release_free(pf_dev->ctrl_area);
-	rte_free(pf_dev->app_fw_priv);
-}
-
-void
-nfp_pf_uninit(struct nfp_pf_dev *pf_dev)
-{
-	nfp_cpp_area_release_free(pf_dev->mac_stats_area);
-	nfp_cpp_area_release_free(pf_dev->qc_area);
-	free(pf_dev->sym_tbl);
-	if (pf_dev->multi_pf.enabled) {
-		nfp_net_keepalive_stop(&pf_dev->multi_pf);
-		nfp_net_keepalive_uninit(&pf_dev->multi_pf);
-	}
-	free(pf_dev->nfp_eth_table);
-	free(pf_dev->hwinfo);
-	nfp_cpp_free(pf_dev->cpp);
-	rte_free(pf_dev);
-}
-
-static int
-nfp_pf_secondary_uninit(struct nfp_pf_dev *pf_dev)
-{
-	free(pf_dev->sym_tbl);
-	nfp_cpp_free(pf_dev->cpp);
-	rte_free(pf_dev);
-
-	return 0;
-}
-
 /* Reset and stop device. The device can not be restarted. */
 static int
 nfp_net_close(struct rte_eth_dev *dev)
@@ -394,19 +321,8 @@ nfp_net_close(struct rte_eth_dev *dev)
 	struct rte_pci_device *pci_dev;
 	struct nfp_app_fw_nic *app_fw_nic;
 
-	/*
-	 * In secondary process, a released eth device can be found by its name
-	 * in shared memory.
-	 * If the state of the eth device is RTE_ETH_DEV_UNUSED, it means the
-	 * eth device has been released.
-	 */
-	if (rte_eal_process_type() == RTE_PROC_SECONDARY) {
-		if (dev->state == RTE_ETH_DEV_UNUSED)
-			return 0;
-
-		nfp_pf_secondary_uninit(dev->process_private);
+	if (rte_eal_process_type() != RTE_PROC_PRIMARY)
 		return 0;
-	}
 
 	hw = dev->data->dev_private;
 	pf_dev = hw->pf_dev;
@@ -423,17 +339,16 @@ nfp_net_close(struct rte_eth_dev *dev)
 	nfp_net_close_tx_queue(dev);
 	nfp_net_close_rx_queue(dev);
 
+	/* Clear ipsec */
+	nfp_ipsec_uninit(dev);
+
 	/* Cancel possible impending LSC work here before releasing the port */
 	rte_eal_alarm_cancel(nfp_net_dev_interrupt_delayed_handler, (void *)dev);
 
 	/* Only free PF resources after all physical ports have been closed */
 	/* Mark this port as unused and free device priv resources */
 	nn_cfg_writeb(&hw->super, NFP_NET_CFG_LSC, 0xff);
-
-	if (pf_dev->app_fw_id != NFP_APP_FW_CORE_NIC)
-		return -EINVAL;
-
-	nfp_cleanup_port_app_fw_nic(pf_dev, hw->idx);
+	app_fw_nic->ports[hw->idx] = NULL;
 
 	for (i = 0; i < app_fw_nic->total_phyports; i++) {
 		id = nfp_function_id_get(pf_dev, i);
@@ -443,15 +358,25 @@ nfp_net_close(struct rte_eth_dev *dev)
 			return 0;
 	}
 
-	/* Enable in nfp_net_start() */
+	/* Now it is safe to free all PF resources */
+	PMD_INIT_LOG(INFO, "Freeing PF resources");
+	if (pf_dev->multi_pf.enabled) {
+		nfp_net_keepalive_stop(&pf_dev->multi_pf);
+		nfp_net_keepalive_uninit(&pf_dev->multi_pf);
+	}
+	nfp_cpp_area_free(pf_dev->ctrl_area);
+	nfp_cpp_area_free(pf_dev->qc_area);
+	free(pf_dev->hwinfo);
+	free(pf_dev->sym_tbl);
+	nfp_cpp_free(pf_dev->cpp);
+	rte_free(app_fw_nic);
+	rte_free(pf_dev);
+
 	rte_intr_disable(pci_dev->intr_handle);
 
-	/* Register in nfp_net_init() */
+	/* Unregister callback func from eal lib */
 	rte_intr_callback_unregister(pci_dev->intr_handle,
 			nfp_net_dev_interrupt_handler, (void *)dev);
-
-	nfp_uninit_app_fw_nic(pf_dev);
-	nfp_pf_uninit(pf_dev);
 
 	return 0;
 }
@@ -651,13 +576,28 @@ nfp_net_init(struct rte_eth_dev *eth_dev)
 
 	rte_eth_copy_pci_info(eth_dev, pci_dev);
 
-	if (pf_dev->multi_pf.enabled)
-		hw->ctrl_bar = pf_dev->ctrl_bar;
-	else
-		hw->ctrl_bar = pf_dev->ctrl_bar + (port * NFP_NET_CFG_BAR_SZ);
+	if (port == 0 || pf_dev->multi_pf.enabled) {
+		uint32_t min_size;
 
-	net_hw->mac_stats = pf_dev->mac_stats_bar +
+		hw->ctrl_bar = pf_dev->ctrl_bar;
+		min_size = NFP_MAC_STATS_SIZE * net_hw->pf_dev->nfp_eth_table->max_index;
+		net_hw->mac_stats_bar = nfp_rtsym_map(net_hw->pf_dev->sym_tbl, "_mac_stats",
+				min_size, &net_hw->mac_stats_area);
+		if (net_hw->mac_stats_bar == NULL) {
+			PMD_INIT_LOG(ERR, "nfp_rtsym_map fails for _mac_stats_bar");
+			return -EIO;
+		}
+
+		net_hw->mac_stats = net_hw->mac_stats_bar;
+	} else {
+		if (pf_dev->ctrl_bar == NULL)
+			return -ENODEV;
+
+		/* Use port offset in pf ctrl_bar for this ports control bar */
+		hw->ctrl_bar = pf_dev->ctrl_bar + (port * NFP_NET_CFG_BAR_SZ);
+		net_hw->mac_stats = app_fw_nic->ports[0]->mac_stats_bar +
 				(net_hw->nfp_idx * NFP_MAC_STATS_SIZE);
+	}
 
 	PMD_INIT_LOG(DEBUG, "ctrl bar: %p", hw->ctrl_bar);
 	PMD_INIT_LOG(DEBUG, "MAC stats: %p", net_hw->mac_stats);
@@ -685,8 +625,7 @@ nfp_net_init(struct rte_eth_dev *eth_dev)
 	if (net_hw->eth_xstats_base == NULL) {
 		PMD_INIT_LOG(ERR, "no memory for xstats base values on device %s!",
 				pci_dev->device.name);
-		err = -ENOMEM;
-		goto ipsec_exit;
+		return -ENOMEM;
 	}
 
 	/* Work out where in the BAR the queues start. */
@@ -716,8 +655,7 @@ nfp_net_init(struct rte_eth_dev *eth_dev)
 	eth_dev->data->mac_addrs = rte_zmalloc("mac_addr", RTE_ETHER_ADDR_LEN, 0);
 	if (eth_dev->data->mac_addrs == NULL) {
 		PMD_INIT_LOG(ERR, "Failed to space for MAC address");
-		err = -ENOMEM;
-		goto xstats_free;
+		return -ENOMEM;
 	}
 
 	nfp_net_pf_read_mac(app_fw_nic, port);
@@ -755,13 +693,6 @@ nfp_net_init(struct rte_eth_dev *eth_dev)
 	nfp_net_stats_reset(eth_dev);
 
 	return 0;
-
-xstats_free:
-	rte_free(net_hw->eth_xstats_base);
-ipsec_exit:
-	nfp_ipsec_uninit(eth_dev);
-
-	return err;
 }
 
 #define DEFAULT_FW_PATH       "/lib/firmware/netronome"
@@ -988,25 +919,24 @@ nfp_check_multi_pf_from_fw(uint32_t total_vnics)
 	return false;
 }
 
-static inline int
+static inline bool
 nfp_check_multi_pf_from_nsp(struct rte_pci_device *pci_dev,
-		struct nfp_cpp *cpp,
-		bool *flag)
+		struct nfp_cpp *cpp)
 {
+	bool flag;
 	struct nfp_nsp *nsp;
 
 	nsp = nfp_nsp_open(cpp);
 	if (nsp == NULL) {
 		PMD_DRV_LOG(ERR, "NFP error when obtaining NSP handle");
-		return -EIO;
+		return false;
 	}
 
-	*flag = (nfp_nsp_get_abi_ver_major(nsp) > 0) &&
+	flag = (nfp_nsp_get_abi_ver_major(nsp) > 0) &&
 			(pci_dev->id.device_id == PCI_DEVICE_ID_NFP3800_PF_NIC);
 
 	nfp_nsp_close(nsp);
-
-	return 0;
+	return flag;
 }
 
 static int
@@ -1190,46 +1120,26 @@ port_cleanup:
 				app_fw_nic->ports[id]->eth_dev != NULL) {
 			struct rte_eth_dev *tmp_dev;
 			tmp_dev = app_fw_nic->ports[id]->eth_dev;
-			nfp_net_uninit(tmp_dev);
+			nfp_ipsec_uninit(tmp_dev);
 			rte_eth_dev_release_port(tmp_dev);
+			app_fw_nic->ports[id] = NULL;
 		}
 	}
-	nfp_cpp_area_release_free(pf_dev->ctrl_area);
+	nfp_cpp_area_free(pf_dev->ctrl_area);
 app_cleanup:
 	rte_free(app_fw_nic);
 
 	return ret;
 }
 
-/* Force the physical port down to clear the possible DMA error */
-static int
-nfp_net_force_port_down(struct nfp_pf_dev *pf_dev,
-		struct nfp_eth_table *nfp_eth_table,
-		struct nfp_cpp *cpp)
-{
-	int ret;
-	uint32_t i;
-	uint32_t id;
-	uint32_t index;
-	uint32_t count;
-
-	count = nfp_net_get_port_num(pf_dev, nfp_eth_table);
-	for (i = 0; i < count; i++) {
-		id = nfp_function_id_get(pf_dev, i);
-		index = nfp_eth_table->ports[id].index;
-		ret = nfp_eth_set_configured(cpp, index, 0);
-		if (ret < 0)
-			return ret;
-	}
-
-	return 0;
-}
-
 static int
 nfp_pf_init(struct rte_pci_device *pci_dev)
 {
+	uint32_t i;
+	uint32_t id;
 	int ret = 0;
 	uint64_t addr;
+	uint32_t index;
 	uint32_t cpp_id;
 	uint8_t function_id;
 	struct nfp_cpp *cpp;
@@ -1298,19 +1208,14 @@ nfp_pf_init(struct rte_pci_device *pci_dev)
 		goto hwinfo_cleanup;
 	}
 
-	ret = nfp_check_multi_pf_from_nsp(pci_dev, cpp, &pf_dev->multi_pf.enabled);
-	if (ret != 0) {
-		PMD_INIT_LOG(ERR, "Failed to check multi pf from NSP.");
-		goto eth_table_cleanup;
-	}
-
+	pf_dev->multi_pf.enabled = nfp_check_multi_pf_from_nsp(pci_dev, cpp);
 	pf_dev->multi_pf.function_id = function_id;
 
-	ret = nfp_net_force_port_down(pf_dev, nfp_eth_table, cpp);
-	if (ret != 0) {
-		PMD_INIT_LOG(ERR, "Failed to force port down");
-		ret = -EIO;
-		goto eth_table_cleanup;
+	/* Force the physical port down to clear the possible DMA error */
+	for (i = 0; i < nfp_eth_table->count; i++) {
+		id = nfp_function_id_get(pf_dev, i);
+		index = nfp_eth_table->ports[id].index;
+		nfp_eth_set_configured(cpp, index, 0);
 	}
 
 	if (nfp_fw_setup(pci_dev, cpp, nfp_eth_table, hwinfo,
@@ -1359,14 +1264,6 @@ nfp_pf_init(struct rte_pci_device *pci_dev)
 
 	PMD_INIT_LOG(DEBUG, "qc_bar address: %p", pf_dev->qc_bar);
 
-	pf_dev->mac_stats_bar = nfp_rtsym_map(sym_tbl, "_mac_stats",
-			NFP_MAC_STATS_SIZE * nfp_eth_table->max_index,
-			&pf_dev->mac_stats_area);
-	if (pf_dev->mac_stats_bar == NULL) {
-		PMD_INIT_LOG(ERR, "nfp_rtsym_map fails for _mac_stats");
-		goto hwqueues_cleanup;
-	}
-
 	/*
 	 * PF initialization has been done at this point. Call app specific
 	 * init code now.
@@ -1376,14 +1273,14 @@ nfp_pf_init(struct rte_pci_device *pci_dev)
 		if (pf_dev->multi_pf.enabled) {
 			ret = nfp_enable_multi_pf(pf_dev);
 			if (ret != 0)
-				goto mac_stats_cleanup;
+				goto hwqueues_cleanup;
 		}
 
 		PMD_INIT_LOG(INFO, "Initializing coreNIC");
 		ret = nfp_init_app_fw_nic(pf_dev, dev_info);
 		if (ret != 0) {
 			PMD_INIT_LOG(ERR, "Could not initialize coreNIC!");
-			goto mac_stats_cleanup;
+			goto hwqueues_cleanup;
 		}
 		break;
 	case NFP_APP_FW_FLOWER_NIC:
@@ -1391,13 +1288,13 @@ nfp_pf_init(struct rte_pci_device *pci_dev)
 		ret = nfp_init_app_fw_flower(pf_dev, dev_info);
 		if (ret != 0) {
 			PMD_INIT_LOG(ERR, "Could not initialize Flower!");
-			goto mac_stats_cleanup;
+			goto hwqueues_cleanup;
 		}
 		break;
 	default:
 		PMD_INIT_LOG(ERR, "Unsupported Firmware loaded");
 		ret = -EINVAL;
-		goto mac_stats_cleanup;
+		goto hwqueues_cleanup;
 	}
 
 	/* Register the CPP bridge service here for primary use */
@@ -1407,18 +1304,13 @@ nfp_pf_init(struct rte_pci_device *pci_dev)
 
 	return 0;
 
-mac_stats_cleanup:
-	nfp_cpp_area_release_free(pf_dev->mac_stats_area);
 hwqueues_cleanup:
-	nfp_cpp_area_release_free(pf_dev->qc_area);
+	nfp_cpp_area_free(pf_dev->qc_area);
 sym_tbl_cleanup:
 	free(sym_tbl);
 fw_cleanup:
 	nfp_fw_unload(cpp);
-	if (pf_dev->multi_pf.enabled) {
-		nfp_net_keepalive_stop(&pf_dev->multi_pf);
-		nfp_net_keepalive_uninit(&pf_dev->multi_pf);
-	}
+	nfp_net_keepalive_stop(&pf_dev->multi_pf);
 eth_table_cleanup:
 	free(nfp_eth_table);
 hwinfo_cleanup:
@@ -1545,7 +1437,7 @@ nfp_pf_secondary_init(struct rte_pci_device *pci_dev)
 	if (sym_tbl == NULL) {
 		PMD_INIT_LOG(ERR, "Something is wrong with the firmware symbol table");
 		ret = -EIO;
-		goto cpp_cleanup;
+		goto pf_cleanup;
 	}
 
 	/* Read the app ID of the firmware loaded */
@@ -1592,8 +1484,6 @@ nfp_pf_secondary_init(struct rte_pci_device *pci_dev)
 
 sym_tbl_cleanup:
 	free(sym_tbl);
-cpp_cleanup:
-	nfp_cpp_free(cpp);
 pf_cleanup:
 	rte_free(pf_dev);
 

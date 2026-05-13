@@ -160,13 +160,13 @@ ethdev_ptype_setup(uint16_t port, uint16_t queue)
 
 	if (!l3_ipv4 || !l3_ipv6) {
 		node_info("ethdev_rx",
-			  "Enabling ptype callback for required ptypes on port %u",
+			  "Enabling ptype callback for required ptypes on port %u\n",
 			  port);
 
 		if (!rte_eth_add_rx_callback(port, queue, eth_pkt_parse_cb,
 					     NULL)) {
 			node_err("ethdev_rx",
-				 "Failed to add rx ptype cb: port=%d, queue=%d",
+				 "Failed to add rx ptype cb: port=%d, queue=%d\n",
 				 port, queue);
 			return -EINVAL;
 		}

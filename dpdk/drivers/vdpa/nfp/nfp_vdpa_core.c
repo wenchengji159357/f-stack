@@ -55,10 +55,7 @@ nfp_vdpa_hw_init(struct nfp_vdpa_hw *vdpa_hw,
 		struct rte_pci_device *pci_dev)
 {
 	uint32_t queue;
-	uint8_t *tx_bar;
-	uint32_t start_q;
 	struct nfp_hw *hw;
-	uint32_t tx_bar_off;
 	uint8_t *notify_base;
 
 	hw = &vdpa_hw->super;
@@ -85,12 +82,6 @@ nfp_vdpa_hw_init(struct nfp_vdpa_hw *vdpa_hw,
 				idx + 1, vdpa_hw->notify_addr[idx + 1]);
 	}
 
-	/* NFP vDPA cfg queue setup */
-	start_q = nn_cfg_readl(hw, NFP_NET_CFG_START_TXQ);
-	tx_bar_off = start_q * NFP_QCP_QUEUE_ADDR_SZ;
-	tx_bar = (uint8_t *)pci_dev->mem_resource[2].addr + tx_bar_off;
-	hw->qcp_cfg = tx_bar + NFP_QCP_QUEUE_ADDR_SZ;
-
 	vdpa_hw->features = (1ULL << VIRTIO_F_VERSION_1) |
 			(1ULL << VIRTIO_F_IN_ORDER) |
 			(1ULL << VHOST_USER_F_PROTOCOL_FEATURES);
@@ -101,7 +92,7 @@ nfp_vdpa_hw_init(struct nfp_vdpa_hw *vdpa_hw,
 static uint32_t
 nfp_vdpa_check_offloads(void)
 {
-	return NFP_NET_CFG_CTRL_VIRTIO  |
+	return NFP_NET_CFG_CTRL_SCATTER |
 			NFP_NET_CFG_CTRL_IN_ORDER;
 }
 
@@ -112,7 +103,6 @@ nfp_vdpa_hw_start(struct nfp_vdpa_hw *vdpa_hw,
 	int ret;
 	uint32_t update;
 	uint32_t new_ctrl;
-	uint32_t new_ext_ctrl;
 	struct timespec wait_tst;
 	struct nfp_hw *hw = &vdpa_hw->super;
 	uint8_t mac_addr[RTE_ETHER_ADDR_LEN];
@@ -132,6 +122,8 @@ nfp_vdpa_hw_start(struct nfp_vdpa_hw *vdpa_hw,
 	nfp_disable_queues(hw);
 	nfp_enable_queues(hw, NFP_VDPA_MAX_QUEUES, NFP_VDPA_MAX_QUEUES);
 
+	new_ctrl = nfp_vdpa_check_offloads();
+
 	nn_cfg_writel(hw, NFP_NET_CFG_MTU, 9216);
 	nn_cfg_writel(hw, NFP_NET_CFG_FLBUFSZ, 10240);
 
@@ -146,17 +138,8 @@ nfp_vdpa_hw_start(struct nfp_vdpa_hw *vdpa_hw,
 	/* Writing new MAC to the specific port BAR address */
 	nfp_write_mac(hw, (uint8_t *)mac_addr);
 
-	new_ext_ctrl = nfp_vdpa_check_offloads();
-
-	update = NFP_NET_CFG_UPDATE_GEN;
-	ret = nfp_ext_reconfig(hw, new_ext_ctrl, update);
-	if (ret != 0)
-		return -EIO;
-
-	hw->ctrl_ext = new_ext_ctrl;
-
 	/* Enable device */
-	new_ctrl = NFP_NET_CFG_CTRL_ENABLE;
+	new_ctrl |= NFP_NET_CFG_CTRL_ENABLE;
 
 	/* Signal the NIC about the change */
 	update = NFP_NET_CFG_UPDATE_MACADDR |

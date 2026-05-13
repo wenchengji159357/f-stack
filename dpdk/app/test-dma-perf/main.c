@@ -206,8 +206,6 @@ parse_lcore_dma(struct test_configure *test_case, const char *value)
 		return -1;
 
 	input = strndup(value, strlen(value) + 1);
-	if (input == NULL)
-		return -1;
 	addrs = input;
 
 	while (*addrs == '\0')

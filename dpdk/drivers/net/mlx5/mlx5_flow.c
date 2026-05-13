@@ -1953,18 +1953,16 @@ mlx5_flow_rxq_dynf_set(struct rte_eth_dev *dev)
 		if (rxq == NULL || rxq->ctrl == NULL)
 			continue;
 		data = &rxq->ctrl->rxq;
-		if (!data->shared || !rxq->ctrl->started) {
-			if (!rte_flow_dynf_metadata_avail()) {
-				data->dynf_meta = 0;
-				data->flow_meta_mask = 0;
-				data->flow_meta_offset = -1;
-				data->flow_meta_port_mask = 0;
-			} else {
-				data->dynf_meta = 1;
-				data->flow_meta_mask = rte_flow_dynf_metadata_mask;
-				data->flow_meta_offset = rte_flow_dynf_metadata_offs;
-				data->flow_meta_port_mask = priv->sh->dv_meta_mask;
-			}
+		if (!rte_flow_dynf_metadata_avail()) {
+			data->dynf_meta = 0;
+			data->flow_meta_mask = 0;
+			data->flow_meta_offset = -1;
+			data->flow_meta_port_mask = 0;
+		} else {
+			data->dynf_meta = 1;
+			data->flow_meta_mask = rte_flow_dynf_metadata_mask;
+			data->flow_meta_offset = rte_flow_dynf_metadata_offs;
+			data->flow_meta_port_mask = priv->sh->dv_meta_mask;
 		}
 		data->mark_flag = mark_flag;
 	}
@@ -2506,7 +2504,7 @@ int
 flow_validate_modify_field_level(const struct rte_flow_action_modify_data *data,
 				 struct rte_flow_error *error)
 {
-	if (data->level == 0 || data->field == RTE_FLOW_FIELD_FLEX_ITEM)
+	if (data->level == 0)
 		return 0;
 	if (data->field != RTE_FLOW_FIELD_TAG &&
 	    data->field != (enum rte_flow_field_id)MLX5_RTE_FLOW_FIELD_META_REG)
@@ -5230,8 +5228,8 @@ flow_mreg_add_copy_action(struct rte_eth_dev *dev, uint32_t mark_id,
 	};
 
 	/* Check if already registered. */
-	MLX5_ASSERT(priv->sh->mreg_cp_tbl);
-	entry = mlx5_hlist_register(priv->sh->mreg_cp_tbl, mark_id, &ctx);
+	MLX5_ASSERT(priv->mreg_cp_tbl);
+	entry = mlx5_hlist_register(priv->mreg_cp_tbl, mark_id, &ctx);
 	if (!entry)
 		return NULL;
 	return container_of(entry, struct mlx5_flow_mreg_copy_resource,
@@ -5270,10 +5268,10 @@ flow_mreg_del_copy_action(struct rte_eth_dev *dev,
 		return;
 	mcp_res = mlx5_ipool_get(priv->sh->ipool[MLX5_IPOOL_MCP],
 				 flow->rix_mreg_copy);
-	if (!mcp_res || !priv->sh->mreg_cp_tbl)
+	if (!mcp_res || !priv->mreg_cp_tbl)
 		return;
 	MLX5_ASSERT(mcp_res->rix_flow);
-	mlx5_hlist_unregister(priv->sh->mreg_cp_tbl, &mcp_res->hlist_ent);
+	mlx5_hlist_unregister(priv->mreg_cp_tbl, &mcp_res->hlist_ent);
 	flow->rix_mreg_copy = 0;
 }
 
@@ -5295,14 +5293,14 @@ flow_mreg_del_default_copy_action(struct rte_eth_dev *dev)
 	uint32_t mark_id;
 
 	/* Check if default flow is registered. */
-	if (!priv->sh->mreg_cp_tbl)
+	if (!priv->mreg_cp_tbl)
 		return;
 	mark_id = MLX5_DEFAULT_COPY_ID;
 	ctx.data = &mark_id;
-	entry = mlx5_hlist_lookup(priv->sh->mreg_cp_tbl, mark_id, &ctx);
+	entry = mlx5_hlist_lookup(priv->mreg_cp_tbl, mark_id, &ctx);
 	if (!entry)
 		return;
-	mlx5_hlist_unregister(priv->sh->mreg_cp_tbl, entry);
+	mlx5_hlist_unregister(priv->mreg_cp_tbl, entry);
 }
 
 /**
@@ -5340,7 +5338,7 @@ flow_mreg_add_default_copy_action(struct rte_eth_dev *dev,
 	 */
 	mark_id = MLX5_DEFAULT_COPY_ID;
 	ctx.data = &mark_id;
-	if (mlx5_hlist_lookup(priv->sh->mreg_cp_tbl, mark_id, &ctx))
+	if (mlx5_hlist_lookup(priv->mreg_cp_tbl, mark_id, &ctx))
 		return 0;
 	mcp_res = flow_mreg_add_copy_action(dev, mark_id, error);
 	if (!mcp_res)
@@ -5494,7 +5492,6 @@ flow_hairpin_split(struct rte_eth_dev *dev,
 			}
 			break;
 		case RTE_FLOW_ACTION_TYPE_COUNT:
-		case RTE_FLOW_ACTION_TYPE_AGE:
 			if (encap) {
 				rte_memcpy(actions_tx, actions,
 					   sizeof(struct rte_flow_action));
@@ -5820,8 +5817,8 @@ flow_meter_split_prep(struct rte_eth_dev *dev,
 	struct mlx5_rte_flow_item_tag *tag_item_spec;
 	struct mlx5_rte_flow_item_tag *tag_item_mask;
 	uint32_t tag_id = 0;
-	bool vlan_actions;
-	struct rte_flow_item *orig_sfx_items = sfx_items;
+	struct rte_flow_item *vlan_item_dst = NULL;
+	const struct rte_flow_item *vlan_item_src = NULL;
 	const struct rte_flow_item *orig_items = items;
 	struct rte_flow_action *hw_mtr_action;
 	struct rte_flow_action *action_pre_head = NULL;
@@ -5838,7 +5835,6 @@ flow_meter_split_prep(struct rte_eth_dev *dev,
 
 	/* Prepare the suffix subflow items. */
 	tag_item = sfx_items++;
-	tag_item->type = (enum rte_flow_item_type)MLX5_RTE_FLOW_ITEM_TYPE_TAG;
 	for (; items->type != RTE_FLOW_ITEM_TYPE_END; items++) {
 		int item_type = items->type;
 
@@ -5861,13 +5857,10 @@ flow_meter_split_prep(struct rte_eth_dev *dev,
 			sfx_items++;
 			break;
 		case RTE_FLOW_ITEM_TYPE_VLAN:
-			/*
-			 * Copy VLAN items in case VLAN actions are performed.
-			 * If there are no VLAN actions, these items will be VOID.
-			 */
-			memcpy(sfx_items, items, sizeof(*sfx_items));
-			sfx_items->type = (enum rte_flow_item_type)MLX5_RTE_FLOW_ITEM_TYPE_VLAN;
-			sfx_items++;
+			/* Determine if copy vlan item below. */
+			vlan_item_src = items;
+			vlan_item_dst = sfx_items++;
+			vlan_item_dst->type = RTE_FLOW_ITEM_TYPE_VOID;
 			break;
 		default:
 			break;
@@ -5884,7 +5877,6 @@ flow_meter_split_prep(struct rte_eth_dev *dev,
 		tag_action = actions_pre++;
 	}
 	/* Prepare the actions for prefix and suffix flow. */
-	vlan_actions = false;
 	for (; actions->type != RTE_FLOW_ACTION_TYPE_END; actions++) {
 		struct rte_flow_action *action_cur = NULL;
 
@@ -5915,7 +5907,16 @@ flow_meter_split_prep(struct rte_eth_dev *dev,
 			break;
 		case RTE_FLOW_ACTION_TYPE_OF_PUSH_VLAN:
 		case RTE_FLOW_ACTION_TYPE_OF_SET_VLAN_VID:
-			vlan_actions = true;
+			if (vlan_item_dst && vlan_item_src) {
+				memcpy(vlan_item_dst, vlan_item_src,
+					sizeof(*vlan_item_dst));
+				/*
+				 * Convert to internal match item, it is used
+				 * for vlan push and set vid.
+				 */
+				vlan_item_dst->type = (enum rte_flow_item_type)
+						MLX5_RTE_FLOW_ITEM_TYPE_VLAN;
+			}
 			break;
 		case RTE_FLOW_ACTION_TYPE_COUNT:
 			if (fm->def_policy)
@@ -5929,14 +5930,6 @@ flow_meter_split_prep(struct rte_eth_dev *dev,
 			action_cur = (fm->def_policy) ?
 					actions_sfx++ : actions_pre++;
 		memcpy(action_cur, actions, sizeof(struct rte_flow_action));
-	}
-	/* If there are no VLAN actions, convert VLAN items to VOID in suffix flow items. */
-	if (!vlan_actions) {
-		struct rte_flow_item *it = orig_sfx_items;
-
-		for (; it->type != RTE_FLOW_ITEM_TYPE_END; it++)
-			if (it->type == (enum rte_flow_item_type)MLX5_RTE_FLOW_ITEM_TYPE_VLAN)
-				it->type = RTE_FLOW_ITEM_TYPE_VOID;
 	}
 	/* Add end action to the actions. */
 	actions_sfx->type = RTE_FLOW_ACTION_TYPE_END;
@@ -6027,6 +6020,8 @@ flow_meter_split_prep(struct rte_eth_dev *dev,
 	tag_action->type = (enum rte_flow_action_type)
 				MLX5_RTE_FLOW_ACTION_TYPE_TAG;
 	tag_action->conf = set_tag;
+	tag_item->type = (enum rte_flow_item_type)
+				MLX5_RTE_FLOW_ITEM_TYPE_TAG;
 	tag_item->spec = tag_item_spec;
 	tag_item->last = NULL;
 	tag_item->mask = tag_item_mask;
@@ -6854,19 +6849,6 @@ flow_meter_create_drop_flow_with_org_pattern(struct rte_eth_dev *dev,
 				&drop_split_info, error);
 }
 
-static int
-flow_count_vlan_items(const struct rte_flow_item items[])
-{
-	int items_n = 0;
-
-	for (; items->type != RTE_FLOW_ITEM_TYPE_END; items++) {
-		if (items->type == RTE_FLOW_ITEM_TYPE_VLAN ||
-		    items->type == (enum rte_flow_item_type)MLX5_RTE_FLOW_ITEM_TYPE_VLAN)
-			items_n++;
-	}
-	return items_n;
-}
-
 /**
  * The splitting for meter feature.
  *
@@ -6922,7 +6904,6 @@ flow_create_split_meter(struct rte_eth_dev *dev,
 	size_t act_size;
 	size_t item_size;
 	int actions_n = 0;
-	int vlan_items_n = 0;
 	int ret = 0;
 
 	if (priv->mtr_en)
@@ -6982,11 +6963,9 @@ flow_create_split_meter(struct rte_eth_dev *dev,
 		act_size = (sizeof(struct rte_flow_action) *
 			    (actions_n + METER_PREFIX_ACTION)) +
 			   sizeof(struct mlx5_rte_flow_action_set_tag);
-		/* Flow can have multiple VLAN items. Account for them in suffix items. */
-		vlan_items_n = flow_count_vlan_items(items);
-		/* Suffix items: tag, [vlans], port id, end. */
-#define METER_SUFFIX_ITEM 3
-		item_size = sizeof(struct rte_flow_item) * (METER_SUFFIX_ITEM + vlan_items_n) +
+		/* Suffix items: tag, vlan, port id, end. */
+#define METER_SUFFIX_ITEM 4
+		item_size = sizeof(struct rte_flow_item) * METER_SUFFIX_ITEM +
 			    sizeof(struct mlx5_rte_flow_item_tag) * 2;
 		sfx_actions = mlx5_malloc(MLX5_MEM_ZERO, (act_size + item_size),
 					  0, SOCKET_ID_ANY);
@@ -8101,9 +8080,8 @@ mlx5_flow_list_flush(struct rte_eth_dev *dev, enum mlx5_flow_type type,
 #ifdef HAVE_IBV_FLOW_DV_SUPPORT
 	if (priv->sh->config.dv_flow_en == 2 &&
 	    type == MLX5_FLOW_TYPE_GEN) {
-		priv->hws_rule_flushing = true;
 		flow_hw_q_flow_flush(dev, NULL);
-		priv->hws_rule_flushing = false;
+		return;
 	}
 #endif
 

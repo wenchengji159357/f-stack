@@ -21,6 +21,7 @@ cperf_set_ops_asym(struct rte_crypto_op **ops,
 		   uint64_t *tsc_start __rte_unused)
 {
 	uint16_t i;
+	void *asym_sess = (void *)sess;
 
 	for (i = 0; i < nb_ops; i++) {
 		struct rte_crypto_asym_op *asym_op = ops[i]->asym;
@@ -30,7 +31,7 @@ cperf_set_ops_asym(struct rte_crypto_op **ops,
 		asym_op->modex.base.length = options->modex_data->base.len;
 		asym_op->modex.result.data = options->modex_data->result.data;
 		asym_op->modex.result.length = options->modex_data->result.len;
-		rte_crypto_op_attach_asym_session(ops[i], sess);
+		rte_crypto_op_attach_asym_session(ops[i], asym_sess);
 	}
 }
 
@@ -63,6 +64,7 @@ cperf_set_ops_security(struct rte_crypto_op **ops,
 
 	for (i = 0; i < nb_ops; i++) {
 		struct rte_crypto_sym_op *sym_op = ops[i]->sym;
+		void *sec_sess = (void *)sess;
 		uint32_t buf_sz;
 
 		uint32_t *per_pkt_hfn = rte_crypto_op_ctod_offset(ops[i],
@@ -70,7 +72,7 @@ cperf_set_ops_security(struct rte_crypto_op **ops,
 		*per_pkt_hfn = options->pdcp_ses_hfn_en ? 0 : PDCP_DEFAULT_HFN;
 
 		ops[i]->status = RTE_CRYPTO_OP_STATUS_NOT_PROCESSED;
-		rte_security_attach_session(ops[i], sess);
+		rte_security_attach_session(ops[i], sec_sess);
 		sym_op->m_src = (struct rte_mbuf *)((uint8_t *)ops[i] +
 							src_buf_offset);
 
@@ -127,6 +129,7 @@ cperf_set_ops_security_ipsec(struct rte_crypto_op **ops,
 		uint16_t iv_offset __rte_unused, uint32_t *imix_idx,
 		uint64_t *tsc_start)
 {
+	void *sec_sess = sess;
 	const uint32_t test_buffer_size = options->test_buffer_size;
 	const uint32_t headroom_sz = options->headroom_sz;
 	const uint32_t segment_sz = options->segment_sz;
@@ -140,7 +143,7 @@ cperf_set_ops_security_ipsec(struct rte_crypto_op **ops,
 		struct rte_mbuf *m = sym_op->m_src;
 
 		ops[i]->status = RTE_CRYPTO_OP_STATUS_NOT_PROCESSED;
-		rte_security_attach_session(ops[i], sess);
+		rte_security_attach_session(ops[i], sec_sess);
 		sym_op->m_src = (struct rte_mbuf *)((uint8_t *)ops[i] +
 							src_buf_offset);
 
@@ -535,9 +538,7 @@ cperf_set_ops_aead(struct rte_crypto_op **ops,
 	uint16_t i;
 	/* AAD is placed after the IV */
 	uint16_t aad_offset = iv_offset +
-			((options->aead_algo == RTE_CRYPTO_AEAD_AES_CCM) ?
-			RTE_ALIGN_CEIL(test_vector->aead_iv.length, 16) :
-			test_vector->aead_iv.length);
+			RTE_ALIGN_CEIL(test_vector->aead_iv.length, 16);
 
 	for (i = 0; i < nb_ops; i++) {
 		struct rte_crypto_sym_op *sym_op = ops[i]->sym;

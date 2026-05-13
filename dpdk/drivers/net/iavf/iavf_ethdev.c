@@ -296,7 +296,6 @@ iavf_dev_watchdog(void *cb_arg)
 			PMD_DRV_LOG(INFO, "VF \"%s\" reset has completed",
 				adapter->vf.eth_dev->data->name);
 			adapter->vf.vf_reset = false;
-			iavf_set_no_poll(adapter, false);
 		}
 	/* If not in reset then poll vfr_inprogress register for VFLR event */
 	} else {
@@ -309,7 +308,6 @@ iavf_dev_watchdog(void *cb_arg)
 
 			/* enter reset state with VFLR event */
 			adapter->vf.vf_reset = true;
-			iavf_set_no_poll(adapter, false);
 			adapter->vf.link_up = false;
 
 			iavf_dev_event_post(adapter->vf.eth_dev, RTE_ETH_EVENT_INTR_RESET,
@@ -630,8 +628,7 @@ iavf_dev_init_vlan(struct rte_eth_dev *dev)
 					RTE_ETH_VLAN_FILTER_MASK |
 					RTE_ETH_VLAN_EXTEND_MASK);
 	if (err) {
-		PMD_DRV_LOG(INFO,
-			"VLAN offloading is not supported, or offloading was refused by the PF");
+		PMD_DRV_LOG(ERR, "Failed to update vlan offload");
 		return err;
 	}
 
@@ -707,7 +704,9 @@ iavf_dev_configure(struct rte_eth_dev *dev)
 		vf->max_rss_qregion = IAVF_MAX_NUM_QUEUES_DFLT;
 	}
 
-	iavf_dev_init_vlan(dev);
+	ret = iavf_dev_init_vlan(dev);
+	if (ret)
+		PMD_DRV_LOG(ERR, "configure VLAN failed: %d", ret);
 
 	if (vf->vf_res->vf_cap_flags & VIRTCHNL_VF_OFFLOAD_RSS_PF) {
 		if (iavf_init_rss(ad) != 0) {
@@ -1033,7 +1032,7 @@ iavf_dev_start(struct rte_eth_dev *dev)
 		if (iavf_configure_queues(adapter,
 				IAVF_CFG_Q_NUM_PER_BUF, index) != 0) {
 			PMD_DRV_LOG(ERR, "configure queues failed");
-			goto error;
+			goto err_queue;
 		}
 		num_queue_pairs -= IAVF_CFG_Q_NUM_PER_BUF;
 		index += IAVF_CFG_Q_NUM_PER_BUF;
@@ -1041,12 +1040,12 @@ iavf_dev_start(struct rte_eth_dev *dev)
 
 	if (iavf_configure_queues(adapter, num_queue_pairs, index) != 0) {
 		PMD_DRV_LOG(ERR, "configure queues failed");
-		goto error;
+		goto err_queue;
 	}
 
 	if (iavf_config_rx_queues_irqs(dev, intr_handle) != 0) {
 		PMD_DRV_LOG(ERR, "configure irq failed");
-		goto error;
+		goto err_queue;
 	}
 	/* re-enable intr again, because efd assign may change */
 	if (dev->data->dev_conf.intr_conf.rxq != 0) {
@@ -1066,12 +1065,14 @@ iavf_dev_start(struct rte_eth_dev *dev)
 
 	if (iavf_start_queues(dev) != 0) {
 		PMD_DRV_LOG(ERR, "enable queues failed");
-		goto error;
+		goto err_mac;
 	}
 
 	return 0;
 
-error:
+err_mac:
+	iavf_add_del_all_mac_addr(adapter, false);
+err_queue:
 	return -1;
 }
 
@@ -1084,6 +1085,9 @@ iavf_dev_stop(struct rte_eth_dev *dev)
 	struct rte_intr_handle *intr_handle = dev->intr_handle;
 
 	PMD_INIT_FUNC_TRACE();
+
+	if (vf->vf_reset)
+		return 0;
 
 	if (adapter->closed)
 		return -1;
@@ -1099,6 +1103,16 @@ iavf_dev_stop(struct rte_eth_dev *dev)
 	rte_intr_efd_disable(intr_handle);
 	/* Rx interrupt vector mapping free */
 	rte_intr_vec_list_free(intr_handle);
+
+	/* adminq will be disabled when vf is resetting. */
+	if (!vf->in_reset_recovery) {
+		/* remove all mac addrs */
+		iavf_add_del_all_mac_addr(adapter, false);
+
+		/* remove all multicast addresses */
+		iavf_add_del_mc_addr_list(adapter, vf->mc_addrs, vf->mc_addrs_num,
+				  false);
+	}
 
 	iavf_stop_queues(dev);
 
@@ -1151,6 +1165,7 @@ iavf_dev_info_get(struct rte_eth_dev *dev, struct rte_eth_dev_info *dev_info)
 		RTE_ETH_TX_OFFLOAD_TCP_CKSUM |
 		RTE_ETH_TX_OFFLOAD_SCTP_CKSUM |
 		RTE_ETH_TX_OFFLOAD_OUTER_IPV4_CKSUM |
+		RTE_ETH_TX_OFFLOAD_OUTER_UDP_CKSUM |
 		RTE_ETH_TX_OFFLOAD_TCP_TSO |
 		RTE_ETH_TX_OFFLOAD_VXLAN_TNL_TSO |
 		RTE_ETH_TX_OFFLOAD_GRE_TNL_TSO |
@@ -1158,10 +1173,6 @@ iavf_dev_info_get(struct rte_eth_dev *dev, struct rte_eth_dev_info *dev_info)
 		RTE_ETH_TX_OFFLOAD_GENEVE_TNL_TSO |
 		RTE_ETH_TX_OFFLOAD_MULTI_SEGS |
 		RTE_ETH_TX_OFFLOAD_MBUF_FAST_FREE;
-
-	/* X710 does not support outer udp checksum */
-	if (adapter->hw.mac.type != IAVF_MAC_XL710)
-		dev_info->tx_offload_capa |= RTE_ETH_TX_OFFLOAD_OUTER_UDP_CKSUM;
 
 	if (vf->vf_res->vf_cap_flags & VIRTCHNL_VF_OFFLOAD_CRC)
 		dev_info->rx_offload_capa |= RTE_ETH_RX_OFFLOAD_KEEP_CRC;
@@ -1365,37 +1376,12 @@ iavf_dev_del_mac_addr(struct rte_eth_dev *dev, uint32_t index)
 }
 
 static int
-iavf_disable_vlan_strip_ex(struct rte_eth_dev *dev, int on)
-{
-	/* For i40e kernel drivers which supports both vlan(v1 & v2) VIRTCHNL OP,
-	 * it will set strip on when setting filter on but dpdk side will not
-	 * change strip flag. To be consistent with dpdk side, explicitly disable
-	 * strip again.
-	 *
-	 */
-	struct iavf_adapter *adapter =
-		IAVF_DEV_PRIVATE_TO_ADAPTER(dev->data->dev_private);
-	struct rte_eth_conf *dev_conf = &dev->data->dev_conf;
-	int err;
-
-	if (adapter->hw.mac.type == IAVF_MAC_XL710 ||
-	    adapter->hw.mac.type == IAVF_MAC_VF ||
-	    adapter->hw.mac.type == IAVF_MAC_X722_VF) {
-		if (on && !(dev_conf->rxmode.offloads & RTE_ETH_RX_OFFLOAD_VLAN_STRIP)) {
-			err = iavf_disable_vlan_strip(adapter);
-			if (err)
-				return -EIO;
-		}
-	}
-	return 0;
-}
-
-static int
 iavf_dev_vlan_filter_set(struct rte_eth_dev *dev, uint16_t vlan_id, int on)
 {
 	struct iavf_adapter *adapter =
 		IAVF_DEV_PRIVATE_TO_ADAPTER(dev->data->dev_private);
 	struct iavf_info *vf = IAVF_DEV_PRIVATE_TO_VF(adapter);
+	struct rte_eth_conf *dev_conf = &dev->data->dev_conf;
 	int err;
 
 	if (adapter->closed)
@@ -1405,8 +1391,7 @@ iavf_dev_vlan_filter_set(struct rte_eth_dev *dev, uint16_t vlan_id, int on)
 		err = iavf_add_del_vlan_v2(adapter, vlan_id, on);
 		if (err)
 			return -EIO;
-
-		return iavf_disable_vlan_strip_ex(dev, on);
+		return 0;
 	}
 
 	if (!(vf->vf_res->vf_cap_flags & VIRTCHNL_VF_OFFLOAD_VLAN))
@@ -1416,7 +1401,23 @@ iavf_dev_vlan_filter_set(struct rte_eth_dev *dev, uint16_t vlan_id, int on)
 	if (err)
 		return -EIO;
 
-	return iavf_disable_vlan_strip_ex(dev, on);
+	/* For i40e kernel driver which only supports vlan(v1) VIRTCHNL OP,
+	 * it will set strip on when setting filter on but dpdk side will not
+	 * change strip flag. To be consistent with dpdk side, disable strip
+	 * again.
+	 *
+	 * For i40e kernel driver which supports vlan v2, dpdk will invoke vlan v2
+	 * related function, so it won't go through here.
+	 */
+	if (adapter->hw.mac.type == IAVF_MAC_XL710 ||
+	    adapter->hw.mac.type == IAVF_MAC_X722_VF) {
+		if (on && !(dev_conf->rxmode.offloads & RTE_ETH_RX_OFFLOAD_VLAN_STRIP)) {
+			err = iavf_disable_vlan_strip(adapter);
+			if (err)
+				return -EIO;
+		}
+	}
+	return 0;
 }
 
 static void
@@ -2299,7 +2300,7 @@ static int iavf_parse_devargs(struct rte_eth_dev *dev)
 
 	kvlist = rte_kvargs_parse(devargs->args, iavf_valid_args);
 	if (!kvlist) {
-		PMD_INIT_LOG(ERR, "invalid kvargs key");
+		PMD_INIT_LOG(ERR, "invalid kvargs key\n");
 		return -EINVAL;
 	}
 
@@ -2334,7 +2335,7 @@ static int iavf_parse_devargs(struct rte_eth_dev *dev)
 	if (ad->devargs.quanta_size != 0 &&
 	    (ad->devargs.quanta_size < 256 || ad->devargs.quanta_size > 4096 ||
 	     ad->devargs.quanta_size & 0x40)) {
-		PMD_INIT_LOG(ERR, "invalid quanta size");
+		PMD_INIT_LOG(ERR, "invalid quanta size\n");
 		ret = -EINVAL;
 		goto bail;
 	}
@@ -2621,9 +2622,6 @@ void
 iavf_dev_alarm_handler(void *param)
 {
 	struct rte_eth_dev *dev = (struct rte_eth_dev *)param;
-	if (dev == NULL || dev->data == NULL || dev->data->dev_private == NULL)
-		return;
-
 	struct iavf_hw *hw = IAVF_DEV_PRIVATE_TO_HW(dev->data->dev_private);
 	uint32_t icr0;
 
@@ -2751,16 +2749,18 @@ iavf_dev_init(struct rte_eth_dev *eth_dev)
 			&eth_dev->data->mac_addrs[0]);
 
 
-	if (vf->vf_res->vf_cap_flags & VIRTCHNL_VF_OFFLOAD_WB_ON_ITR &&
-			/* register callback func to eal lib */
-			rte_intr_callback_register(pci_dev->intr_handle,
-				   iavf_dev_interrupt_handler, (void *)eth_dev) == 0)
+	if (vf->vf_res->vf_cap_flags & VIRTCHNL_VF_OFFLOAD_WB_ON_ITR) {
+		/* register callback func to eal lib */
+		rte_intr_callback_register(pci_dev->intr_handle,
+					   iavf_dev_interrupt_handler,
+					   (void *)eth_dev);
 
 		/* enable uio intr after callback register */
 		rte_intr_enable(pci_dev->intr_handle);
-	else
+	} else {
 		rte_eal_alarm_set(IAVF_ALARM_INTERVAL,
 				  iavf_dev_alarm_handler, eth_dev);
+	}
 
 	/* configure and enable device interrupt */
 	iavf_enable_irq0(hw);
@@ -2874,7 +2874,6 @@ iavf_dev_close(struct rte_eth_dev *dev)
 	if (vf->promisc_unicast_enabled || vf->promisc_multicast_enabled)
 		iavf_config_promisc(adapter, false, false);
 
-	iavf_vf_reset(hw);
 	iavf_shutdown_adminq(hw);
 	if (vf->vf_res->vf_cap_flags & VIRTCHNL_VF_OFFLOAD_WB_ON_ITR) {
 		/* disable uio intr before callback unregister */
@@ -2917,10 +2916,8 @@ iavf_dev_close(struct rte_eth_dev *dev)
 	 * effect.
 	 */
 out:
-	if (vf->vf_reset && !rte_pci_set_bus_master(pci_dev, true)) {
+	if (vf->vf_reset && !rte_pci_set_bus_master(pci_dev, true))
 		vf->vf_reset = false;
-		iavf_set_no_poll(adapter, false);
-	}
 
 	/* disable watchdog */
 	iavf_dev_watchdog_disable(adapter);
@@ -2951,9 +2948,9 @@ static int
 iavf_dev_reset(struct rte_eth_dev *dev)
 {
 	int ret;
-	struct iavf_adapter *adapter =
-		IAVF_DEV_PRIVATE_TO_ADAPTER(dev->data->dev_private);
 	struct iavf_hw *hw = IAVF_DEV_PRIVATE_TO_HW(dev->data->dev_private);
+	struct iavf_info *vf = IAVF_DEV_PRIVATE_TO_VF(dev->data->dev_private);
+
 	/*
 	 * Check whether the VF reset has been done and inform application,
 	 * to avoid calling the virtual channel command, which may cause
@@ -2961,12 +2958,12 @@ iavf_dev_reset(struct rte_eth_dev *dev)
 	 */
 	ret = iavf_check_vf_reset_done(hw);
 	if (ret) {
-		PMD_DRV_LOG(ERR, "Wait too long for reset done!");
+		PMD_DRV_LOG(ERR, "Wait too long for reset done!\n");
 		return ret;
 	}
-	iavf_set_no_poll(adapter, false);
+	vf->vf_reset = false;
 
-	PMD_DRV_LOG(DEBUG, "Start dev_reset ...");
+	PMD_DRV_LOG(DEBUG, "Start dev_reset ...\n");
 	ret = iavf_dev_uninit(dev);
 	if (ret)
 		return ret;
@@ -2974,49 +2971,16 @@ iavf_dev_reset(struct rte_eth_dev *dev)
 	return iavf_dev_init(dev);
 }
 
-static inline bool
-iavf_is_reset(struct iavf_hw *hw)
-{
-	return !(IAVF_READ_REG(hw, IAVF_VF_ARQLEN1) &
-		IAVF_VF_ARQLEN1_ARQENABLE_MASK);
-}
-
-static bool
-iavf_is_reset_detected(struct iavf_adapter *adapter)
-{
-	struct iavf_hw *hw = IAVF_DEV_PRIVATE_TO_HW(adapter);
-	int i;
-
-	/* poll until we see the reset actually happen */
-	for (i = 0; i < IAVF_RESET_DETECTED_CNT; i++) {
-		if (iavf_is_reset(hw))
-			return true;
-		rte_delay_ms(20);
-	}
-
-	return false;
-}
-
 /*
  * Handle hardware reset
  */
-void
+int
 iavf_handle_hw_reset(struct rte_eth_dev *dev)
 {
 	struct iavf_info *vf = IAVF_DEV_PRIVATE_TO_VF(dev->data->dev_private);
-	struct iavf_adapter *adapter = dev->data->dev_private;
 	int ret;
 
-	if (!dev->data->dev_started)
-		return;
-
-	if (!iavf_is_reset_detected(adapter)) {
-		PMD_DRV_LOG(DEBUG, "reset not start");
-		return;
-	}
-
 	vf->in_reset_recovery = true;
-	iavf_set_no_poll(adapter, false);
 
 	ret = iavf_dev_reset(dev);
 	if (ret)
@@ -3033,26 +2997,15 @@ iavf_handle_hw_reset(struct rte_eth_dev *dev)
 	ret = iavf_dev_start(dev);
 	if (ret)
 		goto error;
-
 	dev->data->dev_started = 1;
-	goto exit;
+
+	vf->in_reset_recovery = false;
+	return 0;
 
 error:
-	PMD_DRV_LOG(DEBUG, "RESET recover with error code=%dn", ret);
-exit:
+	PMD_DRV_LOG(DEBUG, "RESET recover with error code=%d\n", ret);
 	vf->in_reset_recovery = false;
-	iavf_set_no_poll(adapter, false);
-
-	return;
-}
-
-void
-iavf_set_no_poll(struct iavf_adapter *adapter, bool link_change)
-{
-	struct iavf_info *vf = &adapter->vf;
-
-	adapter->no_poll = (link_change & !vf->link_up) ||
-		vf->vf_reset || vf->in_reset_recovery;
+	return ret;
 }
 
 static int

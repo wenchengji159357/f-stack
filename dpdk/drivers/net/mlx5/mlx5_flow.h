@@ -77,7 +77,7 @@ enum mlx5_indirect_type {
 /* Now, the maximal ports will be supported is 16, action number is 32M. */
 #define MLX5_INDIRECT_ACT_CT_MAX_PORT 0x10
 
-#define MLX5_INDIRECT_ACT_CT_OWNER_SHIFT 25
+#define MLX5_INDIRECT_ACT_CT_OWNER_SHIFT 22
 #define MLX5_INDIRECT_ACT_CT_OWNER_MASK (MLX5_INDIRECT_ACT_CT_MAX_PORT - 1)
 
 /* 29-31: type, 25-28: owner port, 0-24: index */
@@ -157,9 +157,6 @@ struct mlx5_flow_action_copy_mreg {
 /* Matches on source queue. */
 struct mlx5_rte_flow_item_sq {
 	uint32_t queue; /* DevX SQ number */
-#ifdef RTE_ARCH_64
-	uint32_t reserved;
-#endif
 };
 
 /* Feature name to allocate metadata register. */
@@ -1422,7 +1419,7 @@ struct mlx5_hw_modify_header_action {
 };
 
 /* The maximum actions support in the flow. */
-#define MLX5_HW_MAX_ACTS 32
+#define MLX5_HW_MAX_ACTS 16
 
 /* DR action set struct. */
 struct mlx5_hw_actions {
@@ -1760,28 +1757,6 @@ flow_hw_get_reg_id_from_ctx(void *dr_ctx,
 	RTE_SET_USED(id);
 #endif
 	return REG_NON;
-}
-
-static __rte_always_inline int
-flow_hw_get_port_id_from_ctx(void *dr_ctx, uint32_t *port_val)
-{
-#if defined(HAVE_IBV_FLOW_DV_SUPPORT) || !defined(HAVE_INFINIBAND_VERBS_H)
-	uint32_t port;
-
-	MLX5_ETH_FOREACH_DEV(port, NULL) {
-		struct mlx5_priv *priv;
-		priv = rte_eth_devices[port].data->dev_private;
-
-		if (priv->dr_ctx == dr_ctx) {
-			*port_val = port;
-			return 0;
-		}
-	}
-#else
-	RTE_SET_USED(dr_ctx);
-	RTE_SET_USED(port_val);
-#endif
-	return -EINVAL;
 }
 
 void flow_hw_set_port_info(struct rte_eth_dev *dev);
@@ -2443,13 +2418,13 @@ enum mlx5_flow_ctrl_rx_eth_pattern_type {
 
 /* All types of RSS actions used in control flow rules. */
 enum mlx5_flow_ctrl_rx_expanded_rss_type {
-	MLX5_FLOW_HW_CTRL_RX_EXPANDED_RSS_IPV6_UDP = 0,
-	MLX5_FLOW_HW_CTRL_RX_EXPANDED_RSS_IPV6_TCP,
+	MLX5_FLOW_HW_CTRL_RX_EXPANDED_RSS_NON_IP = 0,
+	MLX5_FLOW_HW_CTRL_RX_EXPANDED_RSS_IPV4,
 	MLX5_FLOW_HW_CTRL_RX_EXPANDED_RSS_IPV4_UDP,
 	MLX5_FLOW_HW_CTRL_RX_EXPANDED_RSS_IPV4_TCP,
 	MLX5_FLOW_HW_CTRL_RX_EXPANDED_RSS_IPV6,
-	MLX5_FLOW_HW_CTRL_RX_EXPANDED_RSS_IPV4,
-	MLX5_FLOW_HW_CTRL_RX_EXPANDED_RSS_NON_IP,
+	MLX5_FLOW_HW_CTRL_RX_EXPANDED_RSS_IPV6_UDP,
+	MLX5_FLOW_HW_CTRL_RX_EXPANDED_RSS_IPV6_TCP,
 	MLX5_FLOW_HW_CTRL_RX_EXPANDED_RSS_MAX,
 };
 
@@ -2469,25 +2444,6 @@ struct mlx5_flow_hw_ctrl_rx {
 	struct rte_flow_actions_template *rss[MLX5_FLOW_HW_CTRL_RX_EXPANDED_RSS_MAX];
 	struct mlx5_flow_hw_ctrl_rx_table tables[MLX5_FLOW_HW_CTRL_RX_ETH_PATTERN_MAX]
 						[MLX5_FLOW_HW_CTRL_RX_EXPANDED_RSS_MAX];
-};
-
-/* Contains all templates required for control flow rules in FDB with HWS. */
-struct mlx5_flow_hw_ctrl_fdb {
-	struct rte_flow_pattern_template *esw_mgr_items_tmpl;
-	struct rte_flow_actions_template *regc_jump_actions_tmpl;
-	struct rte_flow_template_table *hw_esw_sq_miss_root_tbl;
-	struct rte_flow_pattern_template *regc_sq_items_tmpl;
-	struct rte_flow_actions_template *port_actions_tmpl;
-	struct rte_flow_template_table *hw_esw_sq_miss_tbl;
-	struct rte_flow_pattern_template *port_items_tmpl;
-	struct rte_flow_actions_template *jump_one_actions_tmpl;
-	struct rte_flow_template_table *hw_esw_zero_tbl;
-	struct rte_flow_pattern_template *tx_meta_items_tmpl;
-	struct rte_flow_actions_template *tx_meta_actions_tmpl;
-	struct rte_flow_template_table *hw_tx_meta_cpy_tbl;
-	struct rte_flow_pattern_template *lacp_rx_items_tmpl;
-	struct rte_flow_actions_template *lacp_rx_actions_tmpl;
-	struct rte_flow_template_table *hw_lacp_rx_tbl;
 };
 
 #define MLX5_CTRL_PROMISCUOUS    (RTE_BIT32(0))
@@ -3011,9 +2967,6 @@ flow_hw_get_ipv6_route_ext_mod_id_from_ctx(void *dr_ctx, uint8_t idx)
 void
 mlx5_indirect_list_handles_release(struct rte_eth_dev *dev);
 #ifdef HAVE_MLX5_HWS_SUPPORT
-
-#define MLX5_REPR_STC_MEMORY_LOG 11
-
 struct mlx5_mirror;
 void
 mlx5_hw_mirror_destroy(struct rte_eth_dev *dev, struct mlx5_mirror *mirror);

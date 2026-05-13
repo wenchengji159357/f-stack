@@ -29,13 +29,13 @@ process_zlib_deflate(struct rte_comp_op *op, z_stream *strm)
 		break;
 	default:
 		op->status = RTE_COMP_OP_STATUS_INVALID_ARGS;
-		ZLIB_PMD_ERR("Invalid flush value");
+		ZLIB_PMD_ERR("Invalid flush value\n");
 		return;
 	}
 
 	if (unlikely(!strm)) {
 		op->status = RTE_COMP_OP_STATUS_INVALID_ARGS;
-		ZLIB_PMD_ERR("Invalid z_stream");
+		ZLIB_PMD_ERR("Invalid z_stream\n");
 		return;
 	}
 	/* Update z_stream with the inputs provided by application */
@@ -98,7 +98,7 @@ def_end:
 		op->produced += strm->total_out;
 		break;
 	default:
-		ZLIB_PMD_ERR("stats not updated for status:%d",
+		ZLIB_PMD_ERR("stats not updated for status:%d\n",
 				op->status);
 	}
 
@@ -114,7 +114,7 @@ process_zlib_inflate(struct rte_comp_op *op, z_stream *strm)
 
 	if (unlikely(!strm)) {
 		op->status = RTE_COMP_OP_STATUS_INVALID_ARGS;
-		ZLIB_PMD_ERR("Invalid z_stream");
+		ZLIB_PMD_ERR("Invalid z_stream\n");
 		return;
 	}
 	strm->next_in = rte_pktmbuf_mtod_offset(mbuf_src, uint8_t *,
@@ -184,7 +184,7 @@ inf_end:
 		op->produced += strm->total_out;
 		break;
 	default:
-		ZLIB_PMD_ERR("stats not produced for status:%d",
+		ZLIB_PMD_ERR("stats not produced for status:%d\n",
 				op->status);
 	}
 
@@ -203,7 +203,7 @@ process_zlib_op(struct zlib_qp *qp, struct rte_comp_op *op)
 			(op->dst.offset > rte_pktmbuf_data_len(op->m_dst))) {
 		op->status = RTE_COMP_OP_STATUS_INVALID_ARGS;
 		ZLIB_PMD_ERR("Invalid source or destination buffers or "
-			     "invalid Operation requested");
+			     "invalid Operation requested\n");
 	} else {
 		private_xform = (struct zlib_priv_xform *)op->private_xform;
 		stream = &private_xform->stream;
@@ -238,7 +238,7 @@ zlib_set_stream_parameters(const struct rte_comp_xform *xform,
 			wbits = -(xform->compress.window_size);
 			break;
 		default:
-			ZLIB_PMD_ERR("Compression algorithm not supported");
+			ZLIB_PMD_ERR("Compression algorithm not supported\n");
 			return -1;
 		}
 		/** Compression Level */
@@ -260,7 +260,7 @@ zlib_set_stream_parameters(const struct rte_comp_xform *xform,
 			if (level < RTE_COMP_LEVEL_MIN ||
 					level > RTE_COMP_LEVEL_MAX) {
 				ZLIB_PMD_ERR("Compression level %d "
-						"not supported",
+						"not supported\n",
 						level);
 				return -1;
 			}
@@ -278,13 +278,13 @@ zlib_set_stream_parameters(const struct rte_comp_xform *xform,
 			strategy = Z_DEFAULT_STRATEGY;
 			break;
 		default:
-			ZLIB_PMD_ERR("Compression strategy not supported");
+			ZLIB_PMD_ERR("Compression strategy not supported\n");
 			return -1;
 		}
 		if (deflateInit2(strm, level,
 					Z_DEFLATED, wbits,
 					DEF_MEM_LEVEL, strategy) != Z_OK) {
-			ZLIB_PMD_ERR("Deflate init failed");
+			ZLIB_PMD_ERR("Deflate init failed\n");
 			return -1;
 		}
 		break;
@@ -298,12 +298,12 @@ zlib_set_stream_parameters(const struct rte_comp_xform *xform,
 			wbits = -(xform->decompress.window_size);
 			break;
 		default:
-			ZLIB_PMD_ERR("Compression algorithm not supported");
+			ZLIB_PMD_ERR("Compression algorithm not supported\n");
 			return -1;
 		}
 
 		if (inflateInit2(strm, wbits) != Z_OK) {
-			ZLIB_PMD_ERR("Inflate init failed");
+			ZLIB_PMD_ERR("Inflate init failed\n");
 			return -1;
 		}
 		break;
@@ -395,7 +395,7 @@ zlib_probe(struct rte_vdev_device *vdev)
 	retval = rte_compressdev_pmd_parse_input_args(&init_params, input_args);
 	if (retval < 0) {
 		ZLIB_PMD_LOG(ERR,
-			"Failed to parse initialisation arguments[%s]",
+			"Failed to parse initialisation arguments[%s]\n",
 			input_args);
 		return -EINVAL;
 	}

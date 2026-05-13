@@ -303,24 +303,17 @@ static uint16_t bnxt_start_xmit(struct rte_mbuf *tx_pkt,
 		 */
 		txbd1->kid_or_ts_high_mss = 0;
 
-		if (txq->vfr_tx_cfa_action) {
-			txbd1->cfa_action = txq->vfr_tx_cfa_action & 0xffff;
-			txbd1->cfa_action_high = (txq->vfr_tx_cfa_action >> 16) &
-				TX_BD_LONG_CFA_ACTION_HIGH_MASK;
-		} else {
-			txbd1->cfa_action = txq->bp->tx_cfa_action & 0xffff;
-			txbd1->cfa_action_high = (txq->bp->tx_cfa_action >> 16) &
-				TX_BD_LONG_CFA_ACTION_HIGH_MASK;
-		}
+		if (txq->vfr_tx_cfa_action)
+			txbd1->cfa_action = txq->vfr_tx_cfa_action;
+		else
+			txbd1->cfa_action = txq->bp->tx_cfa_action;
 
 		if (tx_pkt->ol_flags & RTE_MBUF_F_TX_TCP_SEG) {
 			uint16_t hdr_size;
 
 			/* TSO */
 			txbd1->lflags |= TX_BD_LONG_LFLAGS_LSO |
-					 TX_BD_LONG_LFLAGS_T_IPID |
-					 TX_BD_LONG_LFLAGS_TCP_UDP_CHKSUM |
-					 TX_BD_LONG_LFLAGS_T_IP_CHKSUM;
+					 TX_BD_LONG_LFLAGS_T_IPID;
 			hdr_size = tx_pkt->l2_len + tx_pkt->l3_len +
 					tx_pkt->l4_len;
 			hdr_size += (tx_pkt->ol_flags & RTE_MBUF_F_TX_TUNNEL_MASK) ?
@@ -569,19 +562,6 @@ static int bnxt_handle_tx_cp(struct bnxt_tx_queue *txq)
 
 uint16_t bnxt_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts,
 			       uint16_t nb_pkts)
-{
-	struct bnxt_tx_queue *txq = tx_queue;
-	uint16_t rc;
-
-	pthread_mutex_lock(&txq->txq_lock);
-	rc = _bnxt_xmit_pkts(tx_queue, tx_pkts, nb_pkts);
-	pthread_mutex_unlock(&txq->txq_lock);
-
-	return rc;
-}
-
-uint16_t _bnxt_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts,
-			 uint16_t nb_pkts)
 {
 	int rc;
 	uint16_t nb_tx_pkts = 0;

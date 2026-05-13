@@ -794,35 +794,9 @@ qp_setup_cleanup:
 
 /** Returns the size of the symmetric session structure */
 static unsigned
-openssl_pmd_sym_session_get_size(struct rte_cryptodev *dev)
+openssl_pmd_sym_session_get_size(struct rte_cryptodev *dev __rte_unused)
 {
-	/*
-	 * For 0 qps, return the max size of the session - this is necessary if
-	 * the user calls into this function to create the session mempool,
-	 * without first configuring the number of qps for the cryptodev.
-	 */
-	if (dev->data->nb_queue_pairs == 0) {
-		unsigned int max_nb_qps = ((struct openssl_private *)
-				dev->data->dev_private)->max_nb_qpairs;
-		return sizeof(struct openssl_session) +
-				(sizeof(struct evp_ctx_pair) * max_nb_qps);
-	}
-
-	/*
-	 * With only one queue pair, the thread safety of multiple context
-	 * copies is not necessary, so don't allocate extra memory for the
-	 * array.
-	 */
-	if (dev->data->nb_queue_pairs == 1)
-		return sizeof(struct openssl_session);
-
-	/*
-	 * Otherwise, the size of the flexible array member should be enough to
-	 * fit pointers to per-qp contexts. This is twice the number of queue
-	 * pairs, to allow for auth and cipher contexts.
-	 */
-	return sizeof(struct openssl_session) +
-		(sizeof(struct evp_ctx_pair) * dev->data->nb_queue_pairs);
+	return sizeof(struct openssl_session);
 }
 
 /** Returns the size of the asymmetric session structure */
@@ -834,7 +808,7 @@ openssl_pmd_asym_session_get_size(struct rte_cryptodev *dev __rte_unused)
 
 /** Configure the session from a crypto xform chain */
 static int
-openssl_pmd_sym_session_configure(struct rte_cryptodev *dev,
+openssl_pmd_sym_session_configure(struct rte_cryptodev *dev __rte_unused,
 		struct rte_crypto_sym_xform *xform,
 		struct rte_cryptodev_sym_session *sess)
 {
@@ -846,8 +820,7 @@ openssl_pmd_sym_session_configure(struct rte_cryptodev *dev,
 		return -EINVAL;
 	}
 
-	ret = openssl_set_session_parameters(sess_private_data, xform,
-			dev->data->nb_queue_pairs);
+	ret = openssl_set_session_parameters(sess_private_data, xform);
 	if (ret != 0) {
 		OPENSSL_LOG(ERR, "failed configure session parameters");
 
@@ -892,7 +865,7 @@ static int openssl_set_asym_session_parameters(
 #if (OPENSSL_VERSION_NUMBER >= 0x30000000L)
 		OSSL_PARAM_BLD * param_bld = OSSL_PARAM_BLD_new();
 		if (!param_bld) {
-			OPENSSL_LOG(ERR, "failed to allocate resources");
+			OPENSSL_LOG(ERR, "failed to allocate resources\n");
 			goto err_rsa;
 		}
 
@@ -900,7 +873,7 @@ static int openssl_set_asym_session_parameters(
 			|| !OSSL_PARAM_BLD_push_BN(param_bld,
 					OSSL_PKEY_PARAM_RSA_E, e)) {
 			OSSL_PARAM_BLD_free(param_bld);
-			OPENSSL_LOG(ERR, "failed to allocate resources");
+			OPENSSL_LOG(ERR, "failed to allocate resources\n");
 			goto err_rsa;
 		}
 
@@ -995,7 +968,7 @@ static int openssl_set_asym_session_parameters(
 		if (rsa == NULL)
 			goto err_rsa;
 
-		if (xform->rsa.d.length > 0) {
+		if (xform->rsa.key_type == RTE_RSA_KEY_TYPE_EXP) {
 			d = BN_bin2bn(
 			(const unsigned char *)xform->rsa.d.data,
 			xform->rsa.d.length,
@@ -1004,9 +977,7 @@ static int openssl_set_asym_session_parameters(
 				RSA_free(rsa);
 				goto err_rsa;
 			}
-		}
-
-		if (xform->rsa.key_type == RTE_RSA_KEY_TYPE_QT) {
+		} else {
 			p = BN_bin2bn((const unsigned char *)
 					xform->rsa.qt.p.data,
 					xform->rsa.qt.p.length,
@@ -1035,14 +1006,14 @@ static int openssl_set_asym_session_parameters(
 			ret = set_rsa_params(rsa, p, q);
 			if (ret) {
 				OPENSSL_LOG(ERR,
-					"failed to set rsa params");
+					"failed to set rsa params\n");
 				RSA_free(rsa);
 				goto err_rsa;
 			}
 			ret = set_rsa_crt_params(rsa, dmp1, dmq1, iqmp);
 			if (ret) {
 				OPENSSL_LOG(ERR,
-					"failed to set crt params");
+					"failed to set crt params\n");
 				RSA_free(rsa);
 				/*
 				 * set already populated params to NULL
@@ -1055,7 +1026,7 @@ static int openssl_set_asym_session_parameters(
 
 		ret = set_rsa_keys(rsa, n, e, d);
 		if (ret) {
-			OPENSSL_LOG(ERR, "Failed to load rsa keys");
+			OPENSSL_LOG(ERR, "Failed to load rsa keys\n");
 			RSA_free(rsa);
 			return ret;
 		}
@@ -1082,7 +1053,7 @@ err_rsa:
 		BN_CTX *ctx = BN_CTX_new();
 		if (ctx == NULL) {
 			OPENSSL_LOG(ERR,
-				" failed to allocate resources");
+				" failed to allocate resources\n");
 			return ret;
 		}
 		BN_CTX_start(ctx);
@@ -1113,7 +1084,7 @@ err_rsa:
 		BN_CTX *ctx = BN_CTX_new();
 		if (ctx == NULL) {
 			OPENSSL_LOG(ERR,
-				" failed to allocate resources");
+				" failed to allocate resources\n");
 			return ret;
 		}
 		BN_CTX_start(ctx);
@@ -1154,7 +1125,7 @@ err_rsa:
 		OSSL_PARAM_BLD *param_bld = NULL;
 		param_bld = OSSL_PARAM_BLD_new();
 		if (!param_bld) {
-			OPENSSL_LOG(ERR, "failed to allocate resources");
+			OPENSSL_LOG(ERR, "failed to allocate resources\n");
 			goto err_dh;
 		}
 		if ((!OSSL_PARAM_BLD_push_utf8_string(param_bld,
@@ -1170,7 +1141,7 @@ err_rsa:
 		OSSL_PARAM_BLD *param_bld_peer = NULL;
 		param_bld_peer = OSSL_PARAM_BLD_new();
 		if (!param_bld_peer) {
-			OPENSSL_LOG(ERR, "failed to allocate resources");
+			OPENSSL_LOG(ERR, "failed to allocate resources\n");
 			OSSL_PARAM_BLD_free(param_bld);
 			goto err_dh;
 		}
@@ -1205,7 +1176,7 @@ err_rsa:
 		dh = DH_new();
 		if (dh == NULL) {
 			OPENSSL_LOG(ERR,
-				"failed to allocate resources");
+				"failed to allocate resources\n");
 			goto err_dh;
 		}
 		ret = set_dh_params(dh, p, g);
@@ -1219,7 +1190,7 @@ err_rsa:
 		break;
 
 err_dh:
-		OPENSSL_LOG(ERR, " failed to set dh params");
+		OPENSSL_LOG(ERR, " failed to set dh params\n");
 #if (OPENSSL_VERSION_NUMBER >= 0x30000000L)
 		BN_free(*p);
 		BN_free(*g);
@@ -1265,7 +1236,7 @@ err_dh:
 
 		param_bld = OSSL_PARAM_BLD_new();
 		if (!param_bld) {
-			OPENSSL_LOG(ERR, "failed to allocate resources");
+			OPENSSL_LOG(ERR, "failed to allocate resources\n");
 			goto err_dsa;
 		}
 
@@ -1275,7 +1246,7 @@ err_dh:
 			|| !OSSL_PARAM_BLD_push_BN(param_bld, OSSL_PKEY_PARAM_PRIV_KEY,
 			*priv_key)) {
 			OSSL_PARAM_BLD_free(param_bld);
-			OPENSSL_LOG(ERR, "failed to allocate resources");
+			OPENSSL_LOG(ERR, "failed to allocate resources\n");
 			goto err_dsa;
 		}
 		asym_session->xfrm_type = RTE_CRYPTO_ASYM_XFORM_DSA;
@@ -1315,14 +1286,14 @@ err_dh:
 		DSA *dsa = DSA_new();
 		if (dsa == NULL) {
 			OPENSSL_LOG(ERR,
-				" failed to allocate resources");
+				" failed to allocate resources\n");
 			goto err_dsa;
 		}
 
 		ret = set_dsa_params(dsa, p, q, g);
 		if (ret) {
 			DSA_free(dsa);
-			OPENSSL_LOG(ERR, "Failed to dsa params");
+			OPENSSL_LOG(ERR, "Failed to dsa params\n");
 			goto err_dsa;
 		}
 
@@ -1336,7 +1307,7 @@ err_dh:
 		ret = set_dsa_keys(dsa, pub_key, priv_key);
 		if (ret) {
 			DSA_free(dsa);
-			OPENSSL_LOG(ERR, "Failed to set keys");
+			OPENSSL_LOG(ERR, "Failed to set keys\n");
 			goto err_dsa;
 		}
 		asym_session->u.s.dsa = dsa;
@@ -1371,21 +1342,21 @@ err_dsa:
 
 		param_bld = OSSL_PARAM_BLD_new();
 		if (!param_bld) {
-			OPENSSL_LOG(ERR, "failed to allocate params");
+			OPENSSL_LOG(ERR, "failed to allocate params\n");
 			goto err_sm2;
 		}
 
 		ret = OSSL_PARAM_BLD_push_utf8_string(param_bld,
 				OSSL_ASYM_CIPHER_PARAM_DIGEST, "SM3", 0);
 		if (!ret) {
-			OPENSSL_LOG(ERR, "failed to push params");
+			OPENSSL_LOG(ERR, "failed to push params\n");
 			goto err_sm2;
 		}
 
 		ret = OSSL_PARAM_BLD_push_utf8_string(param_bld,
 				OSSL_PKEY_PARAM_GROUP_NAME, "SM2", 0);
 		if (!ret) {
-			OPENSSL_LOG(ERR, "failed to push params");
+			OPENSSL_LOG(ERR, "failed to push params\n");
 			goto err_sm2;
 		}
 
@@ -1395,7 +1366,7 @@ err_dsa:
 		ret = OSSL_PARAM_BLD_push_BN(param_bld, OSSL_PKEY_PARAM_PRIV_KEY,
 									 pkey_bn);
 		if (!ret) {
-			OPENSSL_LOG(ERR, "failed to push params");
+			OPENSSL_LOG(ERR, "failed to push params\n");
 			goto err_sm2;
 		}
 
@@ -1410,13 +1381,13 @@ err_dsa:
 		ret = OSSL_PARAM_BLD_push_octet_string(param_bld,
 				OSSL_PKEY_PARAM_PUB_KEY, pubkey, len);
 		if (!ret) {
-			OPENSSL_LOG(ERR, "failed to push params");
+			OPENSSL_LOG(ERR, "failed to push params\n");
 			goto err_sm2;
 		}
 
 		params = OSSL_PARAM_BLD_to_param(param_bld);
 		if (!params) {
-			OPENSSL_LOG(ERR, "failed to push params");
+			OPENSSL_LOG(ERR, "failed to push params\n");
 			goto err_sm2;
 		}
 

@@ -705,9 +705,6 @@ ipsec_ev_inbound_route_pkts(struct rte_event_vector *vec,
 	struct rte_ipsec_session *sess;
 	struct rte_mbuf *pkt;
 	struct ipsec_sa *sa;
-	uint8_t mask = (1UL << RTE_SECURITY_ACTION_TYPE_INLINE_CRYPTO) |
-		       (1UL << RTE_SECURITY_ACTION_TYPE_INLINE_PROTOCOL);
-
 
 	j = ipsec_ev_route_ip_pkts(vec, rt, t);
 
@@ -715,7 +712,7 @@ ipsec_ev_inbound_route_pkts(struct rte_event_vector *vec,
 	for (i = 0; i < t->ipsec.num; i++) {
 		pkt = t->ipsec.pkts[i];
 		sa = ipsec_mask_saptr(t->ipsec.saptr[i]);
-		if (unlikely(sa == NULL) || ((1UL << sa->sessions[0].type) & mask)) {
+		if (unlikely(sa == NULL)) {
 			free_pkts(&pkt, 1);
 			continue;
 		}
@@ -1601,7 +1598,8 @@ ipsec_poll_mode_wrkr_inl_pr(void)
 	int32_t socket_id;
 	uint32_t lcore_id;
 	int32_t i, nb_rx;
-	uint16_t portid, queueid;
+	uint16_t portid;
+	uint8_t queueid;
 
 	prev_tsc = 0;
 	lcore_id = rte_lcore_id();
@@ -1635,7 +1633,7 @@ ipsec_poll_mode_wrkr_inl_pr(void)
 		portid = rxql[i].port_id;
 		queueid = rxql[i].queue_id;
 		RTE_LOG(INFO, IPSEC,
-			" -- lcoreid=%u portid=%u rxqueueid=%" PRIu16 "\n",
+			" -- lcoreid=%u portid=%u rxqueueid=%hhu\n",
 			lcore_id, portid, queueid);
 	}
 
@@ -1731,7 +1729,8 @@ ipsec_poll_mode_wrkr_inl_pr_ss(void)
 	uint32_t i, nb_rx, j;
 	int32_t socket_id;
 	uint32_t lcore_id;
-	uint16_t portid, queueid;
+	uint16_t portid;
+	uint8_t queueid;
 
 	prev_tsc = 0;
 	lcore_id = rte_lcore_id();
@@ -1765,7 +1764,7 @@ ipsec_poll_mode_wrkr_inl_pr_ss(void)
 		portid = rxql[i].port_id;
 		queueid = rxql[i].queue_id;
 		RTE_LOG(INFO, IPSEC,
-			" -- lcoreid=%u portid=%u rxqueueid=%" PRIu16 "\n",
+			" -- lcoreid=%u portid=%u rxqueueid=%hhu\n",
 			lcore_id, portid, queueid);
 	}
 

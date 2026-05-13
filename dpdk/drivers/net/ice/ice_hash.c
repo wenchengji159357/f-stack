@@ -650,10 +650,10 @@ ice_hash_parse_raw_pattern(struct ice_adapter *ad,
 	uint8_t *pkt_buf, *msk_buf;
 	uint8_t tmp_val = 0;
 	uint8_t tmp_c = 0;
-	int i, j, ret = 0;
+	int i, j;
 
 	if (ad->psr == NULL)
-		return -ENOTSUP;
+		return -rte_errno;
 
 	raw_spec = item->spec;
 	raw_mask = item->mask;
@@ -670,10 +670,8 @@ ice_hash_parse_raw_pattern(struct ice_adapter *ad,
 		return -ENOMEM;
 
 	msk_buf = rte_zmalloc(NULL, pkt_len, 0);
-	if (!msk_buf) {
-		rte_free(pkt_buf);
+	if (!msk_buf)
 		return -ENOMEM;
-	}
 
 	/* convert string to int array */
 	for (i = 0, j = 0; i < spec_len; i += 2, j++) {
@@ -710,22 +708,18 @@ ice_hash_parse_raw_pattern(struct ice_adapter *ad,
 			msk_buf[j] = tmp_val * 16 + tmp_c - '0';
 	}
 
-	ret = ice_parser_run(ad->psr, pkt_buf, pkt_len, &rslt);
-	if (ret)
-		goto free_mem;
+	if (ice_parser_run(ad->psr, pkt_buf, pkt_len, &rslt))
+		return -rte_errno;
 
-	ret = ice_parser_profile_init(&rslt, pkt_buf, msk_buf,
-			pkt_len, ICE_BLK_RSS, true, &prof);
-	if (ret)
-		goto free_mem;
+	if (ice_parser_profile_init(&rslt, pkt_buf, msk_buf,
+		pkt_len, ICE_BLK_RSS, true, &prof))
+		return -rte_errno;
 
 	rte_memcpy(&meta->raw.prof, &prof, sizeof(prof));
 
-free_mem:
 	rte_free(pkt_buf);
 	rte_free(msk_buf);
-
-	return ret;
+	return 0;
 }
 
 static void
@@ -1242,13 +1236,13 @@ ice_hash_add_raw_cfg(struct ice_adapter *ad,
 					   ice_get_hw_vsi_num(hw, vsi_handle),
 					   id);
 		if (ret) {
-			PMD_DRV_LOG(ERR, "remove RSS flow failed");
+			PMD_DRV_LOG(ERR, "remove RSS flow failed\n");
 			return ret;
 		}
 
 		ret = ice_rem_prof(hw, ICE_BLK_RSS, id);
 		if (ret) {
-			PMD_DRV_LOG(ERR, "remove RSS profile failed");
+			PMD_DRV_LOG(ERR, "remove RSS profile failed\n");
 			return ret;
 		}
 	}
@@ -1256,7 +1250,7 @@ ice_hash_add_raw_cfg(struct ice_adapter *ad,
 	/* add new profile */
 	ret = ice_flow_set_hw_prof(hw, vsi_handle, 0, prof, ICE_BLK_RSS);
 	if (ret) {
-		PMD_DRV_LOG(ERR, "HW profile add failed");
+		PMD_DRV_LOG(ERR, "HW profile add failed\n");
 		return ret;
 	}
 
@@ -1378,7 +1372,7 @@ ice_hash_rem_raw_cfg(struct ice_adapter *ad,
 	return 0;
 
 err:
-	PMD_DRV_LOG(ERR, "HW profile remove failed");
+	PMD_DRV_LOG(ERR, "HW profile remove failed\n");
 	return ret;
 }
 

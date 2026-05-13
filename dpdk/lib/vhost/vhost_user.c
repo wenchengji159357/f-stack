@@ -1799,7 +1799,6 @@ vhost_user_set_inflight_fd(struct virtio_net **pdev,
 		if (!vq)
 			continue;
 
-		cleanup_vq_inflight(dev, vq);
 		if (vq_is_packed(dev)) {
 			vq->inflight_packed = addr;
 			vq->inflight_packed->desc_num = queue_size;
@@ -2199,10 +2198,7 @@ vhost_user_get_vring_base(struct virtio_net **pdev,
 
 	vhost_user_iotlb_flush_all(dev);
 
-	rte_rwlock_write_lock(&vq->access_lock);
 	vring_invalidate(dev, vq);
-	memset(&vq->ring_addrs, 0, sizeof(struct vhost_vring_addr));
-	rte_rwlock_write_unlock(&vq->access_lock);
 
 	return RTE_VHOST_MSG_RESULT_REPLY;
 }
@@ -2329,7 +2325,7 @@ vhost_user_set_log_base(struct virtio_net **pdev,
 	 * mmap from 0 to workaround a hugepage mmap bug: mmap will
 	 * fail when offset is not page size aligned.
 	 */
-	addr = mmap(0, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, off);
+	addr = mmap(0, size + off, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 	alignment = get_blk_size(fd);
 	close(fd);
 	if (addr == MAP_FAILED) {
@@ -3280,8 +3276,7 @@ unlock:
 	 */
 
 	if (!(dev->flags & VIRTIO_DEV_RUNNING)) {
-		if (!dev->notify_ops->new_device ||
-			dev->notify_ops->new_device(dev->vid) == 0)
+		if (dev->notify_ops->new_device(dev->vid) == 0)
 			dev->flags |= VIRTIO_DEV_RUNNING;
 	}
 

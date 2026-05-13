@@ -340,7 +340,7 @@ static int mlx5dr_matcher_disconnect(struct mlx5dr_matcher *matcher)
 	return 0;
 
 matcher_reconnect:
-	if (LIST_EMPTY(&tbl->head) || prev_matcher == matcher)
+	if (LIST_EMPTY(&tbl->head))
 		LIST_INSERT_HEAD(&matcher->tbl->head, matcher, next);
 	else
 		LIST_INSERT_AFTER(prev_matcher, matcher, next);
@@ -807,7 +807,7 @@ static int mlx5dr_matcher_bind_mt(struct mlx5dr_matcher *matcher)
 	/* Calculate match, range and hash definers */
 	ret = mlx5dr_definer_matcher_init(ctx, matcher);
 	if (ret) {
-		DR_LOG(DEBUG, "Failed to set matcher templates with match definers");
+		DR_LOG(ERR, "Failed to set matcher templates with match definers");
 		return ret;
 	}
 
@@ -1167,13 +1167,6 @@ static int mlx5dr_matcher_init_root(struct mlx5dr_matcher *matcher)
 
 	if (matcher->attr.priority > UINT16_MAX) {
 		DR_LOG(ERR, "Root matcher priority exceeds allowed limit");
-		rte_errno = EINVAL;
-		return rte_errno;
-	}
-
-	ret = flow_hw_get_port_id_from_ctx(ctx, &flow_attr.port_id);
-	if (ret) {
-		DR_LOG(ERR, "Failed to get port id for dev %s", ctx->ibv_ctx->device->name);
 		rte_errno = EINVAL;
 		return rte_errno;
 	}

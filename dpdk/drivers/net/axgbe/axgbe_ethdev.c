@@ -207,7 +207,6 @@ static struct axgbe_version_data axgbe_v2a = {
 	.ecc_support			= 1,
 	.i2c_support			= 1,
 	.an_cdr_workaround		= 1,
-	.enable_rrc			= 1,
 };
 
 static struct axgbe_version_data axgbe_v2b = {
@@ -220,7 +219,6 @@ static struct axgbe_version_data axgbe_v2b = {
 	.ecc_support			= 1,
 	.i2c_support			= 1,
 	.an_cdr_workaround		= 1,
-	.enable_rrc			= 1,
 };
 
 static const struct rte_eth_desc_lim rx_desc_lim = {
@@ -1352,7 +1350,7 @@ axgbe_priority_flow_ctrl_set(struct rte_eth_dev *dev,
 	tc_num = pdata->pfc_map[pfc_conf->priority];
 
 	if (pfc_conf->priority >= pdata->hw_feat.tc_cnt) {
-		PMD_INIT_LOG(ERR, "Max supported  traffic class: %d",
+		PMD_INIT_LOG(ERR, "Max supported  traffic class: %d\n",
 				pdata->hw_feat.tc_cnt);
 	return -EINVAL;
 	}
@@ -2269,9 +2267,6 @@ eth_axgbe_dev_init(struct rte_eth_dev *eth_dev)
 
 			/* Yellow Carp devices do not need cdr workaround */
 			pdata->vdata->an_cdr_workaround = 0;
-
-			/* Yellow Carp devices do not need rrc */
-			pdata->vdata->enable_rrc = 0;
 		} else {
 			unknown_cpu = 1;
 		}
@@ -2409,14 +2404,12 @@ static int
 axgbe_dev_close(struct rte_eth_dev *eth_dev)
 {
 	struct rte_pci_device *pci_dev;
-	struct axgbe_port *pdata;
 
 	PMD_INIT_FUNC_TRACE();
 
 	if (rte_eal_process_type() != RTE_PROC_PRIMARY)
 		return 0;
 
-	pdata = eth_dev->data->dev_private;
 	pci_dev = RTE_DEV_TO_PCI(eth_dev->device);
 	axgbe_dev_clear_queues(eth_dev);
 
@@ -2425,9 +2418,6 @@ axgbe_dev_close(struct rte_eth_dev *eth_dev)
 	rte_intr_callback_unregister(pci_dev->intr_handle,
 				     axgbe_dev_interrupt_handler,
 				     (void *)eth_dev);
-
-	/* Disable all interrupts in the hardware */
-	XP_IOWRITE(pdata, XP_INT_EN, 0x0);
 
 	return 0;
 }

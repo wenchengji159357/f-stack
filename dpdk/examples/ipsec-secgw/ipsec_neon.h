@@ -23,7 +23,6 @@ processx4_step3(struct rte_mbuf *pkts[FWDSTEP], uint16_t dst_port[FWDSTEP],
 	uint32x4_t ve[FWDSTEP];
 	uint32_t *p[FWDSTEP];
 	struct rte_mbuf *pkt;
-	uint16_t port;
 	uint32_t val;
 	uint8_t i;
 
@@ -35,8 +34,7 @@ processx4_step3(struct rte_mbuf *pkts[FWDSTEP], uint16_t dst_port[FWDSTEP],
 			*l_pkt |= 1;
 
 		p[i] = rte_pktmbuf_mtod(pkt, uint32_t *);
-		port = (dst_port[i] == BAD_PORT) ? 0 : dst_port[i];
-		ve[i] = vreinterpretq_u32_s32(val_eth[port]);
+		ve[i] = vreinterpretq_u32_s32(val_eth[dst_port[i]]);
 		te[i] = vld1q_u32(p[i]);
 
 		/* Update last 4 bytes */
@@ -78,7 +76,6 @@ process_packet(struct rte_mbuf *pkt, uint16_t *dst_port, uint64_t tx_offloads,
 {
 	struct rte_ether_hdr *eth_hdr;
 	uint32x4_t te, ve;
-	uint16_t port;
 	uint32_t val;
 
 	/* Check if it is a large packet */
@@ -88,8 +85,7 @@ process_packet(struct rte_mbuf *pkt, uint16_t *dst_port, uint64_t tx_offloads,
 	eth_hdr = rte_pktmbuf_mtod(pkt, struct rte_ether_hdr *);
 
 	te = vld1q_u32((uint32_t *)eth_hdr);
-	port = (dst_port[0] == BAD_PORT) ? 0 : dst_port[0];
-	ve = vreinterpretq_u32_s32(val_eth[port]);
+	ve = vreinterpretq_u32_s32(val_eth[dst_port[0]]);
 
 	val = vgetq_lane_u32(te, 3);
 #if RTE_BYTE_ORDER == RTE_LITTLE_ENDIAN

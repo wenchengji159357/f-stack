@@ -14,7 +14,6 @@
 #include <pthread.h>
 #include <sys/types.h>
 #include <sys/syscall.h>
-#include <sys/ioctl.h>
 
 #include <rte_string_fns.h>
 #include <rte_byteorder.h>
@@ -166,14 +165,8 @@ dpaa_mtu_set(struct rte_eth_dev *dev, uint16_t mtu)
 	uint32_t frame_size = mtu + RTE_ETHER_HDR_LEN + RTE_ETHER_CRC_LEN
 				+ VLAN_TAG_SIZE;
 	uint32_t buffsz = dev->data->min_rx_buf_size - RTE_PKTMBUF_HEADROOM;
-	struct fman_if *fif = dev->process_private;
 
 	PMD_INIT_FUNC_TRACE();
-
-	if (fif->is_shared_mac) {
-		DPAA_PMD_ERR("Cannot configure mtu from DPDK in VSP mode.");
-		return -ENOTSUP;
-	}
 
 	/*
 	 * Refuse mtu that requires the support of scattered packets
@@ -213,8 +206,7 @@ dpaa_eth_dev_configure(struct rte_eth_dev *dev)
 	struct rte_intr_handle *intr_handle;
 	uint32_t max_rx_pktlen;
 	int speed, duplex;
-	int ret, rx_status, socket_fd;
-	struct ifreq ifr;
+	int ret, rx_status;
 
 	PMD_INIT_FUNC_TRACE();
 
@@ -230,26 +222,6 @@ dpaa_eth_dev_configure(struct rte_eth_dev *dev)
 				     dpaa_intf->name);
 			return -EHOSTDOWN;
 		}
-
-		socket_fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
-		if (socket_fd == -1) {
-			DPAA_PMD_ERR("Cannot open IF socket");
-			return -errno;
-		}
-
-		strncpy(ifr.ifr_name, dpaa_intf->name, IFNAMSIZ - 1);
-
-		if (ioctl(socket_fd, SIOCGIFMTU, &ifr) < 0) {
-			DPAA_PMD_ERR("Cannot get interface mtu");
-			close(socket_fd);
-			return -errno;
-		}
-
-		close(socket_fd);
-		DPAA_PMD_INFO("Using kernel configured mtu size(%u)",
-			     ifr.ifr_mtu);
-
-		eth_conf->rxmode.mtu = ifr.ifr_mtu;
 	}
 
 	/* Rx offloads which are enabled by default */
@@ -277,8 +249,7 @@ dpaa_eth_dev_configure(struct rte_eth_dev *dev)
 		max_rx_pktlen = DPAA_MAX_RX_PKT_LEN;
 	}
 
-	if (!fif->is_shared_mac)
-		fman_if_set_maxfrm(dev->process_private, max_rx_pktlen);
+	fman_if_set_maxfrm(dev->process_private, max_rx_pktlen);
 
 	if (rx_offloads & RTE_ETH_RX_OFFLOAD_SCATTER) {
 		DPAA_PMD_DEBUG("enabling scatter mode");
@@ -392,8 +363,7 @@ dpaa_supported_ptypes_get(struct rte_eth_dev *dev)
 		RTE_PTYPE_L4_TCP,
 		RTE_PTYPE_L4_UDP,
 		RTE_PTYPE_L4_SCTP,
-		RTE_PTYPE_TUNNEL_ESP,
-		RTE_PTYPE_UNKNOWN
+		RTE_PTYPE_TUNNEL_ESP
 	};
 
 	PMD_INIT_FUNC_TRACE();
@@ -971,7 +941,7 @@ int dpaa_eth_rx_queue_setup(struct rte_eth_dev *dev, uint16_t queue_idx,
 	struct fman_if *fif = dev->process_private;
 	struct qman_fq *rxq = &dpaa_intf->rx_queues[queue_idx];
 	struct qm_mcc_initfq opts = {0};
-	u32 ch_id, flags = 0;
+	u32 flags = 0;
 	int ret;
 	u32 buffsz = rte_pktmbuf_data_room_size(mp) - RTE_PKTMBUF_HEADROOM;
 	uint32_t max_rx_pktlen;
@@ -1095,9 +1065,7 @@ int dpaa_eth_rx_queue_setup(struct rte_eth_dev *dev, uint16_t queue_idx,
 						DPAA_IF_RX_CONTEXT_STASH;
 
 		/*Create a channel and associate given queue with the channel*/
-		qman_alloc_pool_range(&ch_id, 1, 1, 0);
-		rxq->ch_id = (u16)ch_id;
-
+		qman_alloc_pool_range((u32 *)&rxq->ch_id, 1, 1, 0);
 		opts.we_mask = opts.we_mask | QM_INITFQ_WE_DESTWQ;
 		opts.fqd.dest.channel = rxq->ch_id;
 		opts.fqd.dest.wq = DPAA_IF_RX_PRIORITY;

@@ -7,8 +7,6 @@
 #ifndef	_SYS_EFX_H
 #define	_SYS_EFX_H
 
-#include <assert.h>
-
 #include "efx_annote.h"
 #include "efsys.h"
 #include "efx_types.h"
@@ -19,20 +17,14 @@
 extern "C" {
 #endif
 
-/*
- * Triggers an error at compilation time if the condition is false.
- *
- * The  { } exists to workaround a bug in clang (#55821)
- * where it would not handle _Static_assert in a switch case.
- */
-#define	EFX_STATIC_ASSERT(_cond) \
-	{ static_assert((_cond), #_cond); }
+#define	EFX_STATIC_ASSERT(_cond)		\
+	((void)sizeof (char[(_cond) ? 1 : -1]))
 
 #define	EFX_ARRAY_SIZE(_array)			\
 	(sizeof (_array) / sizeof ((_array)[0]))
 
 #define	EFX_FIELD_OFFSET(_type, _field)		\
-	offsetof(_type, _field)
+	((size_t)&(((_type *)0)->_field))
 
 /* The macro expands divider twice */
 #define	EFX_DIV_ROUND_UP(_n, _d)		(((_n) + (_d) - 1) / (_d))

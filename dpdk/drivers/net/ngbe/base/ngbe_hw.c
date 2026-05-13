@@ -173,9 +173,6 @@ s32 ngbe_reset_hw_em(struct ngbe_hw *hw)
 	ngbe_reset_misc_em(hw);
 	hw->mac.clear_hw_cntrs(hw);
 
-	if (!((hw->sub_device_id & NGBE_OEM_MASK) == NGBE_RGMII_FPGA))
-		hw->phy.set_phy_power(hw, false);
-
 	msec_delay(50);
 
 	/* Store the permanent mac address */
@@ -812,15 +809,6 @@ s32 ngbe_setup_fc_em(struct ngbe_hw *hw)
 		goto out;
 	}
 
-	/*
-	 * Reconfig mac ctrl frame fwd rule to make sure it still
-	 * working after port stop/start.
-	 */
-	wr32m(hw, NGBE_MACRXFLT, NGBE_MACRXFLT_CTL_MASK,
-	      (hw->fc.mac_ctrl_frame_fwd ?
-	       NGBE_MACRXFLT_CTL_NOPS : NGBE_MACRXFLT_CTL_DROP));
-	ngbe_flush(hw);
-
 	err = hw->phy.set_pause_adv(hw, reg_cu);
 
 out:
@@ -1076,7 +1064,7 @@ s32 ngbe_set_pcie_master(struct ngbe_hw *hw, bool enable)
 	u32 i;
 
 	if (rte_pci_set_bus_master(pci_dev, enable) < 0) {
-		DEBUGOUT("Cannot configure PCI bus master");
+		DEBUGOUT("Cannot configure PCI bus master\n");
 		return -1;
 	}
 

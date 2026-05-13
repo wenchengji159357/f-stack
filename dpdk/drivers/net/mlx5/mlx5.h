@@ -69,7 +69,7 @@
 #define MLX5_ROOT_TBL_MODIFY_NUM		16
 
 /* Maximal number of flex items created on the port.*/
-#define MLX5_PORT_FLEX_ITEM_NUM			8
+#define MLX5_PORT_FLEX_ITEM_NUM			4
 
 /* Maximal number of field/field parts to map into sample registers .*/
 #define MLX5_FLEX_ITEM_MAPPING_NUM		32
@@ -263,28 +263,15 @@ struct mlx5_counter_ctrl {
 struct mlx5_xstats_ctrl {
 	/* Number of device stats. */
 	uint16_t stats_n;
-	/* Number of device stats, for the 2nd port in bond. */
-	uint16_t stats_n_2nd;
 	/* Number of device stats identified by PMD. */
-	uint16_t mlx5_stats_n;
-	/* First device counters index. */
-	uint16_t dev_cnt_start;
+	uint16_t  mlx5_stats_n;
 	/* Index in the device counters table. */
 	uint16_t dev_table_idx[MLX5_MAX_XSTATS];
-	/* Index in the output table. */
-	uint16_t xstats_o_idx[MLX5_MAX_XSTATS];
 	uint64_t base[MLX5_MAX_XSTATS];
 	uint64_t xstats[MLX5_MAX_XSTATS];
 	uint64_t hw_stats[MLX5_MAX_XSTATS];
 	struct mlx5_counter_ctrl info[MLX5_MAX_XSTATS];
-	/* Index in the device counters table, for the 2nd port in bond. */
-	uint16_t dev_table_idx_2nd[MLX5_MAX_XSTATS];
-	/* Index in the output table, for the 2nd port in bond. */
-	uint16_t xstats_o_idx_2nd[MLX5_MAX_XSTATS];
 };
-
-/* xstats array size. */
-extern const unsigned int xstats_n;
 
 struct mlx5_stats_ctrl {
 	/* Base for imissed counter. */
@@ -1486,8 +1473,6 @@ struct mlx5_dev_ctx_shared {
 		struct mlx5_hlist *flow_tbls; /* SWS flow table. */
 		struct mlx5_hlist *groups; /* HWS flow group. */
 	};
-	struct mlx5_hlist *mreg_cp_tbl;
-	/* Hash table of Rx metadata register copy table. */
 	struct mlx5_flow_tunnel_hub *tunnel_hub;
 	/* Direct Rules tables for FDB, NIC TX+RX */
 	void *dr_drop_action; /* Pointer to DR drop action, any domain. */
@@ -1877,7 +1862,11 @@ struct mlx5_priv {
 	rte_spinlock_t hw_ctrl_lock;
 	LIST_HEAD(hw_ctrl_flow, mlx5_hw_ctrl_flow) hw_ctrl_flows;
 	LIST_HEAD(hw_ext_ctrl_flow, mlx5_hw_ctrl_flow) hw_ext_ctrl_flows;
-	struct mlx5_flow_hw_ctrl_fdb *hw_ctrl_fdb;
+	struct rte_flow_template_table *hw_esw_sq_miss_root_tbl;
+	struct rte_flow_template_table *hw_esw_sq_miss_tbl;
+	struct rte_flow_template_table *hw_esw_zero_tbl;
+	struct rte_flow_template_table *hw_tx_meta_cpy_tbl;
+	struct rte_flow_template_table *hw_lacp_rx_tbl;
 	struct rte_flow_pattern_template *hw_tx_repr_tagging_pt;
 	struct rte_flow_actions_template *hw_tx_repr_tagging_at;
 	struct rte_flow_template_table *hw_tx_repr_tagging_tbl;
@@ -1911,6 +1900,8 @@ struct mlx5_priv {
 	int nl_socket_rdma; /* Netlink socket (NETLINK_RDMA). */
 	int nl_socket_route; /* Netlink socket (NETLINK_ROUTE). */
 	struct mlx5_nl_vlan_vmwa_context *vmwa_context; /* VLAN WA context. */
+	struct mlx5_hlist *mreg_cp_tbl;
+	/* Hash table of Rx metadata register copy table. */
 	struct mlx5_mtr_config mtr_config; /* Meter configuration */
 	uint8_t mtr_sfx_reg; /* Meter prefix-suffix flow match REG_C. */
 	struct mlx5_legacy_flow_meters flow_meters; /* MTR list. */
@@ -1939,7 +1930,6 @@ struct mlx5_priv {
 	uint32_t hws_mark_refcnt; /* HWS mark action reference counter. */
 	struct rte_pmd_mlx5_flow_engine_mode_info mode_info; /* Process set flow engine info. */
 	struct mlx5_flow_hw_attr *hw_attr; /* HW Steering port configuration. */
-	bool hws_rule_flushing; /**< Whether this port is in rules flushing stage. */
 #if defined(HAVE_IBV_FLOW_DV_SUPPORT) || !defined(HAVE_INFINIBAND_VERBS_H)
 	/* Item template list. */
 	LIST_HEAD(flow_hw_itt, rte_flow_pattern_template) flow_hw_itt;
@@ -1998,30 +1988,6 @@ enum dr_dump_rec_type {
 	DR_DUMP_REC_TYPE_PMD_MODIFY_HDR = 4420,
 	DR_DUMP_REC_TYPE_PMD_COUNTER = 4430,
 };
-
-#if defined(HAVE_MLX5_HWS_SUPPORT)
-static __rte_always_inline struct mlx5_hw_q_job *
-flow_hw_job_get(struct mlx5_priv *priv, uint32_t queue)
-{
-	MLX5_ASSERT(priv->hw_q[queue].job_idx <= priv->hw_q[queue].size);
-	return priv->hw_q[queue].job_idx ?
-	       priv->hw_q[queue].job[--priv->hw_q[queue].job_idx] : NULL;
-}
-
-static __rte_always_inline void
-flow_hw_job_put(struct mlx5_priv *priv, struct mlx5_hw_q_job *job, uint32_t queue)
-{
-	MLX5_ASSERT(priv->hw_q[queue].job_idx < priv->hw_q[queue].size);
-	priv->hw_q[queue].job[priv->hw_q[queue].job_idx++] = job;
-}
-
-struct mlx5_hw_q_job *
-mlx5_flow_action_job_init(struct mlx5_priv *priv, uint32_t queue,
-			  const struct rte_flow_action_handle *handle,
-			  void *user_data, void *query_data,
-			  enum mlx5_hw_job_type type,
-			  struct rte_flow_error *error);
-#endif
 
 /**
  * Indicates whether HW objects operations can be created by DevX.
@@ -2122,7 +2088,6 @@ int mlx5_representor_info_get(struct rte_eth_dev *dev,
 		(((repr_id) >> 12) & 3)
 uint16_t mlx5_representor_id_encode(const struct mlx5_switch_info *info,
 				    enum rte_eth_representor_type hpf_type);
-uint16_t mlx5_dev_get_max_wq_size(struct mlx5_dev_ctx_shared *sh);
 int mlx5_dev_infos_get(struct rte_eth_dev *dev, struct rte_eth_dev_info *info);
 int mlx5_fw_version_get(struct rte_eth_dev *dev, char *fw_ver, size_t fw_size);
 const uint32_t *mlx5_dev_supported_ptypes_get(struct rte_eth_dev *dev);
@@ -2166,9 +2131,8 @@ int mlx5_get_module_eeprom(struct rte_eth_dev *dev,
 			   struct rte_dev_eeprom_info *info);
 int mlx5_os_read_dev_stat(struct mlx5_priv *priv,
 			  const char *ctr_name, uint64_t *stat);
-int mlx5_os_read_dev_counters(struct rte_eth_dev *dev, bool bond_master, uint64_t *stats);
-int mlx5_os_get_stats_n(struct rte_eth_dev *dev, bool bond_master,
-			uint16_t *n_stats, uint16_t *n_stats_sec);
+int mlx5_os_read_dev_counters(struct rte_eth_dev *dev, uint64_t *stats);
+int mlx5_os_get_stats_n(struct rte_eth_dev *dev);
 void mlx5_os_stats_init(struct rte_eth_dev *dev);
 int mlx5_get_flag_dropless_rq(struct rte_eth_dev *dev);
 
@@ -2430,12 +2394,11 @@ int mlx5_aso_flow_hit_queue_poll_start(struct mlx5_dev_ctx_shared *sh);
 int mlx5_aso_flow_hit_queue_poll_stop(struct mlx5_dev_ctx_shared *sh);
 void mlx5_aso_queue_uninit(struct mlx5_dev_ctx_shared *sh,
 			   enum mlx5_access_aso_opc_mod aso_opc_mod);
-int mlx5_aso_meter_update_by_wqe(struct mlx5_priv *priv, uint32_t queue,
-				 struct mlx5_aso_mtr *mtr,
-				 struct mlx5_mtr_bulk *bulk,
-				 struct mlx5_hw_q_job *job, bool push);
-int mlx5_aso_mtr_wait(struct mlx5_priv *priv,
-		      struct mlx5_aso_mtr *mtr, bool is_tmpl_api);
+int mlx5_aso_meter_update_by_wqe(struct mlx5_dev_ctx_shared *sh, uint32_t queue,
+		struct mlx5_aso_mtr *mtr, struct mlx5_mtr_bulk *bulk,
+		void *user_data, bool push);
+int mlx5_aso_mtr_wait(struct mlx5_dev_ctx_shared *sh, uint32_t queue,
+		struct mlx5_aso_mtr *mtr);
 int mlx5_aso_ct_update_by_wqe(struct mlx5_dev_ctx_shared *sh, uint32_t queue,
 			      struct mlx5_aso_ct_action *ct,
 			      const struct rte_flow_action_conntrack *profile,
@@ -2495,12 +2458,11 @@ void mlx5_flex_flow_translate_item(struct rte_eth_dev *dev, void *matcher,
 				   void *key, const struct rte_flow_item *item,
 				   bool is_inner);
 int mlx5_flex_get_sample_id(const struct mlx5_flex_item *tp,
-			    uint32_t idx, uint32_t *pos, bool is_inner);
+			    uint32_t idx, uint32_t *pos,
+			    bool is_inner, uint32_t *def);
 int mlx5_flex_get_parser_value_per_byte_off(const struct rte_flow_item_flex *item,
 					    void *flex, uint32_t byte_off,
-					    bool tunnel, uint32_t *value);
-int mlx5_flex_get_tunnel_mode(const struct rte_flow_item *item,
-			      enum rte_flow_item_flex_tunnel_mode *tunnel_mode);
+					    bool is_mask, bool tunnel, uint32_t *value);
 int mlx5_flex_acquire_index(struct rte_eth_dev *dev,
 			    struct rte_flow_item_flex_handle *handle,
 			    bool acquire);

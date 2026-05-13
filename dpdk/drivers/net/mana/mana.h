@@ -8,13 +8,13 @@
 #define	PCI_VENDOR_ID_MICROSOFT		0x1414
 #define PCI_DEVICE_ID_MICROSOFT_MANA	0x00ba
 
+/* Shared data between primary/secondary processes */
 struct mana_shared_data {
-	RTE_ATOMIC(uint32_t) secondary_cnt;
+	rte_spinlock_t lock;
+	int init_done;
+	unsigned int primary_cnt;
+	unsigned int secondary_cnt;
 };
-
-/* vendor_part_id returned from ibv_query_device */
-#define GDMA_DEVICE_MANA	2
-#define GDMA_DEVICE_MANA_IB	3
 
 #define MANA_MAX_MTU	9000
 #define MIN_RX_BUF_SIZE	1024
@@ -522,9 +522,9 @@ void mana_del_pmd_mr(struct mana_mr_cache *mr);
 void mana_mempool_chunk_cb(struct rte_mempool *mp, void *opaque,
 			   struct rte_mempool_memhdr *memhdr, unsigned int idx);
 
-int mana_mr_btree_lookup(struct mana_mr_btree *bt, uint16_t *idx,
-			 uintptr_t addr, size_t len,
-			 struct mana_mr_cache **cache);
+struct mana_mr_cache *mana_mr_btree_lookup(struct mana_mr_btree *bt,
+					   uint16_t *idx,
+					   uintptr_t addr, size_t len);
 int mana_mr_btree_insert(struct mana_mr_btree *bt, struct mana_mr_cache *entry);
 int mana_mr_btree_init(struct mana_mr_btree *bt, int n, int socket);
 void mana_mr_btree_free(struct mana_mr_btree *bt);

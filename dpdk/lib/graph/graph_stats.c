@@ -34,7 +34,6 @@ struct rte_graph_cluster_stats {
 	uint32_t cluster_node_size; /* Size of struct cluster_node */
 	rte_node_t max_nodes;
 	int socket_id;
-	bool dispatch;
 	void *cookie;
 	size_t sz;
 
@@ -75,16 +74,17 @@ print_banner_dispatch(FILE *f)
 }
 
 static inline void
-print_banner(FILE *f, bool dispatch)
+print_banner(FILE *f)
 {
-	if (dispatch)
+	if (rte_graph_worker_model_get(STAILQ_FIRST(graph_list_head_get())->graph) ==
+	    RTE_GRAPH_MODEL_MCORE_DISPATCH)
 		print_banner_dispatch(f);
 	else
 		print_banner_default(f);
 }
 
 static inline void
-print_node(FILE *f, const struct rte_graph_cluster_node_stats *stat, bool dispatch)
+print_node(FILE *f, const struct rte_graph_cluster_node_stats *stat)
 {
 	double objs_per_call, objs_per_sec, cycles_per_call, ts_per_hz;
 	const uint64_t prev_calls = stat->prev_calls;
@@ -104,7 +104,8 @@ print_node(FILE *f, const struct rte_graph_cluster_node_stats *stat, bool dispat
 	objs_per_sec = ts_per_hz ? (objs - prev_objs) / ts_per_hz : 0;
 	objs_per_sec /= 1000000;
 
-	if (dispatch) {
+	if (rte_graph_worker_model_get(STAILQ_FIRST(graph_list_head_get())->graph) ==
+	    RTE_GRAPH_MODEL_MCORE_DISPATCH) {
 		fprintf(f,
 			"|%-31s|%-15" PRIu64 "|%-15" PRIu64 "|%-15" PRIu64
 			"|%-15" PRIu64 "|%-15" PRIu64
@@ -122,37 +123,26 @@ print_node(FILE *f, const struct rte_graph_cluster_node_stats *stat, bool dispat
 }
 
 static int
-graph_cluster_stats_cb(bool dispatch, bool is_first, bool is_last, void *cookie,
+graph_cluster_stats_cb(bool is_first, bool is_last, void *cookie,
 		       const struct rte_graph_cluster_node_stats *stat)
 {
 	FILE *f = cookie;
+	int model;
+
+	model = rte_graph_worker_model_get(STAILQ_FIRST(graph_list_head_get())->graph);
 
 	if (unlikely(is_first))
-		print_banner(f, dispatch);
+		print_banner(f);
 	if (stat->objs)
-		print_node(f, stat, dispatch);
+		print_node(f, stat);
 	if (unlikely(is_last)) {
-		if (dispatch)
+		if (model == RTE_GRAPH_MODEL_MCORE_DISPATCH)
 			boarder_model_dispatch();
 		else
 			boarder();
 	}
 
 	return 0;
-};
-
-static int
-graph_cluster_stats_cb_rtc(bool is_first, bool is_last, void *cookie,
-			   const struct rte_graph_cluster_node_stats *stat)
-{
-	return graph_cluster_stats_cb(false, is_first, is_last, cookie, stat);
-};
-
-static int
-graph_cluster_stats_cb_dispatch(bool is_first, bool is_last, void *cookie,
-				const struct rte_graph_cluster_node_stats *stat)
-{
-	return graph_cluster_stats_cb(true, is_first, is_last, cookie, stat);
 };
 
 static struct rte_graph_cluster_stats *
@@ -167,13 +157,8 @@ stats_mem_init(struct cluster *cluster,
 
 	/* Fix up callback */
 	fn = prm->fn;
-	if (fn == NULL) {
-		const struct rte_graph *graph = cluster->graphs[0]->graph;
-		if (graph->model == RTE_GRAPH_MODEL_MCORE_DISPATCH)
-			fn = graph_cluster_stats_cb_dispatch;
-		else
-			fn = graph_cluster_stats_cb_rtc;
-	}
+	if (fn == NULL)
+		fn = graph_cluster_stats_cb;
 
 	cluster_node_size = sizeof(struct cluster_node);
 	/* For a given cluster, max nodes will be the max number of graphs */
@@ -365,8 +350,6 @@ rte_graph_cluster_stats_create(const struct rte_graph_cluster_stats_param *prm)
 			if (stats_mem_populate(&stats, graph_fp, graph_node))
 				goto realloc_fail;
 		}
-		if (graph->graph->model == RTE_GRAPH_MODEL_MCORE_DISPATCH)
-			stats->dispatch = true;
 	}
 
 	/* Finally copy to hugepage memory to avoid pressure on rte_realloc */
@@ -392,18 +375,20 @@ rte_graph_cluster_stats_destroy(struct rte_graph_cluster_stats *stat)
 }
 
 static inline void
-cluster_node_arregate_stats(struct cluster_node *cluster, bool dispatch)
+cluster_node_arregate_stats(struct cluster_node *cluster)
 {
 	uint64_t calls = 0, cycles = 0, objs = 0, realloc_count = 0;
 	struct rte_graph_cluster_node_stats *stat = &cluster->stat;
 	uint64_t sched_objs = 0, sched_fail = 0;
 	struct rte_node *node;
 	rte_node_t count;
+	int model;
 
+	model = rte_graph_worker_model_get(STAILQ_FIRST(graph_list_head_get())->graph);
 	for (count = 0; count < cluster->nb_nodes; count++) {
 		node = cluster->nodes[count];
 
-		if (dispatch) {
+		if (model == RTE_GRAPH_MODEL_MCORE_DISPATCH) {
 			sched_objs += node->dispatch.total_sched_objs;
 			sched_fail += node->dispatch.total_sched_fail;
 		}
@@ -418,7 +403,7 @@ cluster_node_arregate_stats(struct cluster_node *cluster, bool dispatch)
 	stat->objs = objs;
 	stat->cycles = cycles;
 
-	if (dispatch) {
+	if (model == RTE_GRAPH_MODEL_MCORE_DISPATCH) {
 		stat->dispatch.sched_objs = sched_objs;
 		stat->dispatch.sched_fail = sched_fail;
 	}
@@ -448,7 +433,7 @@ rte_graph_cluster_stats_get(struct rte_graph_cluster_stats *stat, bool skip_cb)
 	cluster = stat->clusters;
 
 	for (count = 0; count < stat->max_nodes; count++) {
-		cluster_node_arregate_stats(cluster, stat->dispatch);
+		cluster_node_arregate_stats(cluster);
 		if (!skip_cb)
 			rc = stat->fn(!count, (count == stat->max_nodes - 1),
 				      stat->cookie, &cluster->stat);

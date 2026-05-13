@@ -1393,26 +1393,6 @@ ice_dcf_dev_rss_reta_query(struct rte_eth_dev *dev,
 }
 
 static int
-ice_dcf_set_rss_key(struct ice_dcf_hw *hw, uint8_t *key, uint8_t key_len)
-{
-	/* HENA setting, it is enabled by default, no change */
-	if (!key || key_len == 0) {
-		PMD_DRV_LOG(DEBUG, "No key to be configured");
-		return 0;
-	} else if (key_len != hw->vf_res->rss_key_size) {
-		PMD_DRV_LOG(ERR, "The size of hash key configured "
-			"(%d) doesn't match the size of hardware can "
-			"support (%d)", key_len,
-			hw->vf_res->rss_key_size);
-		return -EINVAL;
-	}
-
-	rte_memcpy(hw->rss_key, key, key_len);
-
-	return ice_dcf_configure_rss_key(hw);
-}
-
-static int
 ice_dcf_dev_rss_hash_update(struct rte_eth_dev *dev,
 			struct rte_eth_rss_conf *rss_conf)
 {
@@ -1423,8 +1403,21 @@ ice_dcf_dev_rss_hash_update(struct rte_eth_dev *dev,
 	if (!(hw->vf_res->vf_cap_flags & VIRTCHNL_VF_OFFLOAD_RSS_PF))
 		return -ENOTSUP;
 
-	/* set hash key */
-	ret = ice_dcf_set_rss_key(hw, rss_conf->rss_key, rss_conf->rss_key_len);
+	/* HENA setting, it is enabled by default, no change */
+	if (!rss_conf->rss_key || rss_conf->rss_key_len == 0) {
+		PMD_DRV_LOG(DEBUG, "No key to be configured");
+		return 0;
+	} else if (rss_conf->rss_key_len != hw->vf_res->rss_key_size) {
+		PMD_DRV_LOG(ERR, "The size of hash key configured "
+			"(%d) doesn't match the size of hardware can "
+			"support (%d)", rss_conf->rss_key_len,
+			hw->vf_res->rss_key_size);
+		return -EINVAL;
+	}
+
+	rte_memcpy(hw->rss_key, rss_conf->rss_key, rss_conf->rss_key_len);
+
+	ret = ice_dcf_configure_rss_key(hw);
 	if (ret)
 		return ret;
 
@@ -1458,7 +1451,8 @@ ice_dcf_dev_rss_hash_conf_get(struct rte_eth_dev *dev,
 	if (!(hw->vf_res->vf_cap_flags & VIRTCHNL_VF_OFFLOAD_RSS_PF))
 		return -ENOTSUP;
 
-	rss_conf->rss_hf = dev->data->dev_conf.rx_adv_conf.rss_conf.rss_hf;
+	/* Just set it to default value now. */
+	rss_conf->rss_hf = ICE_RSS_OFFLOAD_ALL;
 
 	if (!rss_conf->rss_key)
 		return 0;
@@ -1652,7 +1646,7 @@ ice_dcf_init_repr_info(struct ice_dcf_adapter *dcf_adapter)
 				   dcf_adapter->real_hw.num_vfs,
 				   sizeof(dcf_adapter->repr_infos[0]), 0);
 	if (!dcf_adapter->repr_infos) {
-		PMD_DRV_LOG(ERR, "Failed to alloc memory for VF representors");
+		PMD_DRV_LOG(ERR, "Failed to alloc memory for VF representors\n");
 		return -ENOMEM;
 	}
 
@@ -2093,7 +2087,7 @@ eth_ice_dcf_pci_probe(__rte_unused struct rte_pci_driver *pci_drv,
 		}
 
 		if (dcf_adapter->real_hw.vf_vsi_map[vf_id] == dcf_vsi_id) {
-			PMD_DRV_LOG(ERR, "VF ID %u is DCF's ID.", vf_id);
+			PMD_DRV_LOG(ERR, "VF ID %u is DCF's ID.\n", vf_id);
 			ret = -EINVAL;
 			break;
 		}

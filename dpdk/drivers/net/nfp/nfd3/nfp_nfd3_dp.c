@@ -133,11 +133,11 @@ nfp_net_nfd3_tx_vlan(struct nfp_net_txq *txq,
 
 	if ((mb->ol_flags & RTE_MBUF_F_TX_VLAN) != 0) {
 		txd->flags |= NFD3_DESC_TX_VLAN;
-		txd->vlan = rte_cpu_to_le_16(mb->vlan_tci);
+		txd->vlan = mb->vlan_tci;
 	}
 }
 
-static inline int
+static inline void
 nfp_net_nfd3_set_meta_data(struct nfp_net_meta_raw *meta_data,
 		struct nfp_net_txq *txq,
 		struct rte_mbuf *pkt)
@@ -174,7 +174,7 @@ nfp_net_nfd3_set_meta_data(struct nfp_net_meta_raw *meta_data,
 	}
 
 	if (meta_data->length == 0)
-		return 0;
+		return;
 
 	meta_info = meta_data->header;
 	meta_data->header = rte_cpu_to_be_32(meta_data->header);
@@ -188,16 +188,15 @@ nfp_net_nfd3_set_meta_data(struct nfp_net_meta_raw *meta_data,
 		case NFP_NET_META_VLAN:
 			if (vlan_layer > 0) {
 				PMD_DRV_LOG(ERR, "At most 1 layers of vlan is supported");
-				return -EINVAL;
+				return;
 			}
-
 			nfp_net_set_meta_vlan(meta_data, pkt, layer);
 			vlan_layer++;
 			break;
 		case NFP_NET_META_IPSEC:
 			if (ipsec_layer > 2) {
 				PMD_DRV_LOG(ERR, "At most 3 layers of ipsec is supported for now.");
-				return -EINVAL;
+				return;
 			}
 
 			nfp_net_set_meta_ipsec(meta_data, txq, pkt, layer, ipsec_layer);
@@ -205,13 +204,11 @@ nfp_net_nfd3_set_meta_data(struct nfp_net_meta_raw *meta_data,
 			break;
 		default:
 			PMD_DRV_LOG(ERR, "The metadata type not supported");
-			return -ENOTSUP;
+			return;
 		}
 
 		memcpy(meta, &meta_data->data[layer], sizeof(meta_data->data[layer]));
 	}
-
-	return 0;
 }
 
 uint16_t
@@ -228,7 +225,6 @@ nfp_net_nfd3_xmit_pkts_common(void *tx_queue,
 		uint16_t nb_pkts,
 		bool repr_flag)
 {
-	int ret;
 	uint16_t i;
 	uint8_t offset;
 	uint32_t pkt_size;
@@ -275,10 +271,7 @@ nfp_net_nfd3_xmit_pkts_common(void *tx_queue,
 		if (!repr_flag) {
 			struct nfp_net_meta_raw meta_data;
 			memset(&meta_data, 0, sizeof(meta_data));
-			ret = nfp_net_nfd3_set_meta_data(&meta_data, txq, pkt);
-			if (unlikely(ret != 0))
-				goto xmit_end;
-
+			nfp_net_nfd3_set_meta_data(&meta_data, txq, pkt);
 			offset = meta_data.length;
 		} else {
 			offset = FLOWER_PKT_DATA_OFFSET;
@@ -298,7 +291,7 @@ nfp_net_nfd3_xmit_pkts_common(void *tx_queue,
 		 * Checksum and VLAN flags just in the first descriptor for a
 		 * multisegment packet, but TSO info needs to be in all of them.
 		 */
-		txd.data_len = rte_cpu_to_le_16((uint16_t)pkt->pkt_len);
+		txd.data_len = pkt->pkt_len;
 		nfp_net_nfd3_tx_tso(txq, &txd, pkt);
 		nfp_net_nfd3_tx_cksum(txq, &txd, pkt);
 		nfp_net_nfd3_tx_vlan(txq, &txd, pkt);
@@ -328,10 +321,10 @@ nfp_net_nfd3_xmit_pkts_common(void *tx_queue,
 			dma_addr = rte_mbuf_data_iova(pkt);
 
 			/* Filling descriptors fields */
-			txds->dma_len = rte_cpu_to_le_16(dma_size);
+			txds->dma_len = dma_size;
 			txds->data_len = txd.data_len;
 			txds->dma_addr_hi = (dma_addr >> 32) & 0xff;
-			txds->dma_addr_lo = rte_cpu_to_le_32(dma_addr & 0xffffffff);
+			txds->dma_addr_lo = (dma_addr & 0xffffffff);
 			free_descs--;
 
 			txq->wr_p++;

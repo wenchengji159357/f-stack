@@ -419,12 +419,11 @@ check_scale(unsigned int lcore)
 {
 	enum power_management_env env;
 
-	/* only PSTATE, AMD-PSTATE, ACPI and CPPC modes are supported */
+	/* only PSTATE and ACPI modes are supported */
 	if (!rte_power_check_env_supported(PM_ENV_ACPI_CPUFREQ) &&
 			!rte_power_check_env_supported(PM_ENV_PSTATE_CPUFREQ) &&
-			!rte_power_check_env_supported(PM_ENV_AMD_PSTATE_CPUFREQ) &&
-			!rte_power_check_env_supported(PM_ENV_CPPC_CPUFREQ)) {
-		RTE_LOG(DEBUG, POWER, "Only ACPI, PSTATE, AMD-PSTATE, or CPPC modes are supported\n");
+			!rte_power_check_env_supported(PM_ENV_AMD_PSTATE_CPUFREQ)) {
+		RTE_LOG(DEBUG, POWER, "Neither ACPI nor PSTATE modes are supported\n");
 		return -ENOTSUP;
 	}
 	/* ensure we could initialize the power library */
@@ -434,8 +433,8 @@ check_scale(unsigned int lcore)
 	/* ensure we initialized the correct env */
 	env = rte_power_get_env();
 	if (env != PM_ENV_ACPI_CPUFREQ && env != PM_ENV_PSTATE_CPUFREQ &&
-			env != PM_ENV_AMD_PSTATE_CPUFREQ && env != PM_ENV_CPPC_CPUFREQ) {
-		RTE_LOG(DEBUG, POWER, "Unable to initialize ACPI, PSTATE, AMD-PSTATE, or CPPC modes\n");
+			env != PM_ENV_AMD_PSTATE_CPUFREQ) {
+		RTE_LOG(DEBUG, POWER, "Neither ACPI nor PSTATE modes were initialized\n");
 		return -ENOTSUP;
 	}
 
@@ -687,7 +686,7 @@ int
 rte_power_pmd_mgmt_set_pause_duration(unsigned int duration)
 {
 	if (duration == 0) {
-		RTE_LOG(ERR, POWER, "Pause duration must be greater than 0, value unchanged\n");
+		RTE_LOG(ERR, POWER, "Pause duration must be greater than 0, value unchanged");
 		return -EINVAL;
 	}
 	pause_duration = duration;
@@ -710,7 +709,7 @@ rte_power_pmd_mgmt_set_scaling_freq_min(unsigned int lcore, unsigned int min)
 	}
 
 	if (min > scale_freq_max[lcore]) {
-		RTE_LOG(ERR, POWER, "Invalid min frequency: Cannot be greater than max frequency\n");
+		RTE_LOG(ERR, POWER, "Invalid min frequency: Cannot be greater than max frequency");
 		return -EINVAL;
 	}
 	scale_freq_min[lcore] = min;
@@ -730,7 +729,7 @@ rte_power_pmd_mgmt_set_scaling_freq_max(unsigned int lcore, unsigned int max)
 	if (max == 0)
 		max = UINT32_MAX;
 	if (max < scale_freq_min[lcore]) {
-		RTE_LOG(ERR, POWER, "Invalid max frequency: Cannot be less than min frequency\n");
+		RTE_LOG(ERR, POWER, "Invalid max frequency: Cannot be less than min frequency");
 		return -EINVAL;
 	}
 

@@ -1370,22 +1370,11 @@ rte_eal_cleanup(void)
 	vfio_mp_sync_cleanup();
 #endif
 	rte_mp_channel_cleanup();
-	/* Secondary processes should not call eal_bus_cleanup() because it
-	 * invokes drv->remove() on all PCI devices, which for virtio PMD ends
-	 * up calling virtio_reset() and writing VIRTIO_CONFIG_STATUS_RESET to
-	 * the hardware.  This resets the NIC owned by the primary process,
-	 * causing it to stop accepting new connections.
-	 *
-	 * Upstream fix: commit 4bc53f8f0d64 ("eal: fix MP socket cleanup"),
-	 * DPDK >= 25.07.  Backport for F-Stack bundled DPDK 23.11.5.
-	 * See also: https://github.com/F-Stack/f-stack/issues/860
-	 */
-	if (rte_eal_process_type() == RTE_PROC_PRIMARY)
-		eal_bus_cleanup();
-	rte_eal_alarm_cleanup();
+	eal_bus_cleanup();
 	rte_trace_save();
 	eal_trace_fini();
 	eal_mp_dev_hotplug_cleanup();
+	rte_eal_alarm_cleanup();
 	/* after this point, any DPDK pointers will become dangling */
 	rte_eal_memory_detach();
 	rte_eal_malloc_heap_cleanup();

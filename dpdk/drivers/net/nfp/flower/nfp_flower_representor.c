@@ -18,11 +18,12 @@ enum nfp_repr_type {
 	NFP_REPR_TYPE_MAX,          /*<< Number of representor types */
 };
 
-int
+static int
 nfp_flower_repr_link_update(struct rte_eth_dev *dev,
 		__rte_unused int wait_to_complete)
 {
 	int ret;
+	uint32_t nn_link_status;
 	struct nfp_net_hw *pf_hw;
 	struct rte_eth_link *link;
 	struct nfp_flower_representor *repr;
@@ -31,10 +32,9 @@ nfp_flower_repr_link_update(struct rte_eth_dev *dev,
 	link = &repr->link;
 
 	pf_hw = repr->app_fw_flower->pf_hw;
-	ret = nfp_net_link_update_common(dev, pf_hw, link, link->link_status);
+	nn_link_status = nn_cfg_readw(&pf_hw->super, NFP_NET_CFG_STS);
 
-	if (repr->repr_type == NFP_REPR_TYPE_PF)
-		nfp_net_notify_port_speed(repr->app_fw_flower->pf_hw, link);
+	ret = nfp_net_link_update_common(dev, pf_hw, link, nn_link_status);
 
 	return ret;
 }
@@ -291,156 +291,12 @@ nfp_flower_repr_tx_burst(void *tx_queue,
 	return sent;
 }
 
-static void
-nfp_flower_repr_free_queue(struct nfp_flower_representor *repr)
-{
-	uint16_t i;
-	struct rte_eth_dev *eth_dev = repr->eth_dev;
-
-	for (i = 0; i < eth_dev->data->nb_tx_queues; i++)
-		rte_free(eth_dev->data->tx_queues[i]);
-
-	for (i = 0; i < eth_dev->data->nb_rx_queues; i++)
-		rte_free(eth_dev->data->rx_queues[i]);
-}
-
-static void
-nfp_flower_pf_repr_close_queue(struct nfp_flower_representor *repr)
-{
-	struct rte_eth_dev *eth_dev = repr->eth_dev;
-
-	/*
-	 * We assume that the DPDK application is stopping all the
-	 * threads/queues before calling the device close function.
-	 */
-	nfp_net_disable_queues(eth_dev);
-
-	/* Clear queues */
-	nfp_net_close_tx_queue(eth_dev);
-	nfp_net_close_rx_queue(eth_dev);
-}
-
-static void
-nfp_flower_repr_close_queue(struct nfp_flower_representor *repr)
-{
-	switch (repr->repr_type) {
-	case NFP_REPR_TYPE_PHYS_PORT:
-		nfp_flower_repr_free_queue(repr);
-		break;
-	case NFP_REPR_TYPE_PF:
-		nfp_flower_pf_repr_close_queue(repr);
-		break;
-	case NFP_REPR_TYPE_VF:
-		nfp_flower_repr_free_queue(repr);
-		break;
-	default:
-		PMD_DRV_LOG(ERR, "Unsupported repr port type.");
-		break;
-	}
-}
-
-static int
-nfp_flower_repr_uninit(struct rte_eth_dev *eth_dev)
-{
-	uint16_t index;
-	struct nfp_flower_representor *repr;
-
-	repr = eth_dev->data->dev_private;
-	rte_ring_free(repr->ring);
-
-	if (repr->repr_type == NFP_REPR_TYPE_PHYS_PORT) {
-		index = NFP_FLOWER_CMSG_PORT_PHYS_PORT_NUM(repr->port_id);
-		repr->app_fw_flower->phy_reprs[index] = NULL;
-	} else {
-		index = repr->vf_id;
-		repr->app_fw_flower->vf_reprs[index] = NULL;
-	}
-
-	return 0;
-}
-
-static int
-nfp_flower_pf_repr_uninit(struct rte_eth_dev *eth_dev)
-{
-	struct nfp_flower_representor *repr = eth_dev->data->dev_private;
-
-	repr->app_fw_flower->pf_repr = NULL;
-
-	return 0;
-}
-
-static void
-nfp_flower_repr_free(struct nfp_flower_representor *repr,
-		enum nfp_repr_type repr_type)
-{
-	switch (repr_type) {
-	case NFP_REPR_TYPE_PHYS_PORT:
-		nfp_flower_repr_uninit(repr->eth_dev);
-		break;
-	case NFP_REPR_TYPE_PF:
-		nfp_flower_pf_repr_uninit(repr->eth_dev);
-		break;
-	case NFP_REPR_TYPE_VF:
-		nfp_flower_repr_uninit(repr->eth_dev);
-		break;
-	default:
-		PMD_DRV_LOG(ERR, "Unsupported repr port type.");
-		break;
-	}
-}
-
-/* Reset and stop device. The device can not be restarted. */
-static int
-nfp_flower_repr_dev_close(struct rte_eth_dev *dev)
-{
-	uint16_t i;
-	struct nfp_net_hw *hw;
-	struct nfp_pf_dev *pf_dev;
-	struct nfp_flower_representor *repr;
-	struct nfp_app_fw_flower *app_fw_flower;
-
-	if (rte_eal_process_type() != RTE_PROC_PRIMARY)
-		return 0;
-
-	repr = dev->data->dev_private;
-	app_fw_flower = repr->app_fw_flower;
-	hw = app_fw_flower->pf_hw;
-	pf_dev = hw->pf_dev;
-
-	if (pf_dev->app_fw_id != NFP_APP_FW_FLOWER_NIC)
-		return -EINVAL;
-
-	nfp_flower_repr_close_queue(repr);
-
-	nfp_flower_repr_free(repr, repr->repr_type);
-
-	for (i = 0; i < MAX_FLOWER_VFS; i++) {
-		if (app_fw_flower->vf_reprs[i] != NULL)
-			return 0;
-	}
-
-	for (i = 0; i < NFP_MAX_PHYPORTS; i++) {
-		if (app_fw_flower->phy_reprs[i] != NULL)
-			return 0;
-	}
-
-	if (app_fw_flower->pf_repr != NULL)
-		return 0;
-
-	/* Now it is safe to free all PF resources */
-	nfp_uninit_app_fw_flower(pf_dev);
-	nfp_pf_uninit(pf_dev);
-
-	return 0;
-}
-
 static const struct eth_dev_ops nfp_flower_pf_repr_dev_ops = {
 	.dev_infos_get        = nfp_flower_repr_dev_infos_get,
 
 	.dev_start            = nfp_flower_pf_start,
 	.dev_configure        = nfp_net_configure,
 	.dev_stop             = nfp_net_stop,
-	.dev_close            = nfp_flower_repr_dev_close,
 
 	.rx_queue_setup       = nfp_net_rx_queue_setup,
 	.tx_queue_setup       = nfp_net_tx_queue_setup,
@@ -463,7 +319,6 @@ static const struct eth_dev_ops nfp_flower_repr_dev_ops = {
 	.dev_start            = nfp_flower_repr_dev_start,
 	.dev_configure        = nfp_net_configure,
 	.dev_stop             = nfp_flower_repr_dev_stop,
-	.dev_close            = nfp_flower_repr_dev_close,
 
 	.rx_queue_setup       = nfp_flower_repr_rx_queue_setup,
 	.tx_queue_setup       = nfp_flower_repr_tx_queue_setup,
@@ -555,7 +410,6 @@ nfp_flower_pf_repr_init(struct rte_eth_dev *eth_dev,
 
 	repr->app_fw_flower->pf_repr = repr;
 	repr->app_fw_flower->pf_hw->eth_dev = eth_dev;
-	repr->eth_dev = eth_dev;
 
 	return 0;
 }
@@ -647,8 +501,6 @@ nfp_flower_repr_init(struct rte_eth_dev *eth_dev,
 		app_fw_flower->vf_reprs[index] = repr;
 	}
 
-	repr->eth_dev = eth_dev;
-
 	return 0;
 
 mac_cleanup:
@@ -657,35 +509,6 @@ ring_cleanup:
 	rte_ring_free(repr->ring);
 
 	return ret;
-}
-
-static void
-nfp_flower_repr_free_all(struct nfp_app_fw_flower *app_fw_flower)
-{
-	uint32_t i;
-	struct nfp_flower_representor *repr;
-
-	for (i = 0; i < MAX_FLOWER_VFS; i++) {
-		repr = app_fw_flower->vf_reprs[i];
-		if (repr != NULL) {
-			nfp_flower_repr_free(repr, NFP_REPR_TYPE_VF);
-			app_fw_flower->vf_reprs[i] = NULL;
-		}
-	}
-
-	for (i = 0; i < NFP_MAX_PHYPORTS; i++) {
-		repr = app_fw_flower->phy_reprs[i];
-		if (repr != NULL) {
-			nfp_flower_repr_free(repr, NFP_REPR_TYPE_PHYS_PORT);
-			app_fw_flower->phy_reprs[i] = NULL;
-		}
-	}
-
-	repr = app_fw_flower->pf_repr;
-	if (repr != NULL) {
-		nfp_flower_repr_free(repr, NFP_REPR_TYPE_PF);
-		app_fw_flower->pf_repr = NULL;
-	}
 }
 
 static int
@@ -740,7 +563,7 @@ nfp_flower_repr_alloc(struct nfp_app_fw_flower *app_fw_flower)
 		eth_port = &nfp_eth_table->ports[i];
 		flower_repr.repr_type = NFP_REPR_TYPE_PHYS_PORT;
 		flower_repr.port_id = nfp_flower_get_phys_port_id(eth_port->index);
-		flower_repr.nfp_idx = eth_port->index;
+		flower_repr.nfp_idx = eth_port->eth_index;
 		flower_repr.vf_id = i + 1;
 
 		/* Copy the real mac of the interface to the representor struct */
@@ -762,7 +585,7 @@ nfp_flower_repr_alloc(struct nfp_app_fw_flower *app_fw_flower)
 	}
 
 	if (i < app_fw_flower->num_phyport_reprs)
-		goto repr_free;
+		return ret;
 
 	/*
 	 * Now allocate eth_dev's for VF representors.
@@ -791,14 +614,9 @@ nfp_flower_repr_alloc(struct nfp_app_fw_flower *app_fw_flower)
 	}
 
 	if (i < app_fw_flower->num_vf_reprs)
-		goto repr_free;
+		return ret;
 
 	return 0;
-
-repr_free:
-	nfp_flower_repr_free_all(app_fw_flower);
-
-	return ret;
 }
 
 int
@@ -816,9 +634,10 @@ nfp_flower_repr_create(struct nfp_app_fw_flower *app_fw_flower)
 	pci_dev = pf_dev->pci_dev;
 
 	/* Allocate a switch domain for the flower app */
-	ret = rte_eth_switch_domain_alloc(&app_fw_flower->switch_domain_id);
-	if (ret != 0)
+	if (app_fw_flower->switch_domain_id == RTE_ETH_DEV_SWITCH_DOMAIN_ID_INVALID &&
+			rte_eth_switch_domain_alloc(&app_fw_flower->switch_domain_id)) {
 		PMD_INIT_LOG(WARNING, "failed to allocate switch domain for device");
+	}
 
 	/* Now parse PCI device args passed for representor info */
 	if (pci_dev->device.devargs != NULL) {
@@ -858,15 +677,8 @@ nfp_flower_repr_create(struct nfp_app_fw_flower *app_fw_flower)
 	ret = nfp_flower_repr_alloc(app_fw_flower);
 	if (ret != 0) {
 		PMD_INIT_LOG(ERR, "representors allocation failed");
-		ret = -EINVAL;
-		goto domain_free;
+		return -EINVAL;
 	}
 
 	return 0;
-
-domain_free:
-	if (rte_eth_switch_domain_free(app_fw_flower->switch_domain_id) != 0)
-		PMD_INIT_LOG(WARNING, "failed to free switch domain for device");
-
-	return ret;
 }

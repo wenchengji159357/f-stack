@@ -270,7 +270,6 @@ modexp_collect(struct rte_crypto_asym_op *asym_op,
 	rte_memcpy(modexp_result,
 		cookie->output_array[0] + alg_bytesize
 		- n.length, n.length);
-	asym_op->modex.result.length = alg_bytesize;
 	HEXDUMP("ModExp result", cookie->output_array[0],
 			alg_bytesize);
 	return RTE_CRYPTO_OP_STATUS_SUCCESS;
@@ -332,7 +331,6 @@ modinv_collect(struct rte_crypto_asym_op *asym_op,
 		- n.length),
 		cookie->output_array[0] + alg_bytesize
 		- n.length, n.length);
-	asym_op->modinv.result.length = alg_bytesize;
 	HEXDUMP("ModInv result", cookie->output_array[0],
 			alg_bytesize);
 	return RTE_CRYPTO_OP_STATUS_SUCCESS;
@@ -1337,48 +1335,11 @@ err:
 	return ret;
 }
 
-static int
+static void
 session_set_ec(struct qat_asym_session *qat_session,
 			struct rte_crypto_asym_xform *xform)
 {
-	uint8_t *pkey = xform->ec.pkey.data;
-	uint8_t *q_x = xform->ec.q.x.data;
-	uint8_t *q_y = xform->ec.q.y.data;
-
-	qat_session->xform.ec.pkey.data =
-		rte_malloc(NULL, xform->ec.pkey.length, 0);
-	if (qat_session->xform.ec.pkey.length &&
-		qat_session->xform.ec.pkey.data == NULL)
-		return -ENOMEM;
-	qat_session->xform.ec.q.x.data = rte_malloc(NULL,
-		xform->ec.q.x.length, 0);
-	if (qat_session->xform.ec.q.x.length &&
-		qat_session->xform.ec.q.x.data == NULL) {
-		rte_free(qat_session->xform.ec.pkey.data);
-		return -ENOMEM;
-	}
-	qat_session->xform.ec.q.y.data = rte_malloc(NULL,
-		xform->ec.q.y.length, 0);
-	if (qat_session->xform.ec.q.y.length &&
-		qat_session->xform.ec.q.y.data == NULL) {
-		rte_free(qat_session->xform.ec.pkey.data);
-		rte_free(qat_session->xform.ec.q.x.data);
-		return -ENOMEM;
-	}
-
-	memcpy(qat_session->xform.ec.pkey.data, pkey,
-		xform->ec.pkey.length);
-	qat_session->xform.ec.pkey.length = xform->ec.pkey.length;
-	memcpy(qat_session->xform.ec.q.x.data, q_x,
-		xform->ec.q.x.length);
-	qat_session->xform.ec.q.x.length = xform->ec.q.x.length;
-	memcpy(qat_session->xform.ec.q.y.data, q_y,
-		xform->ec.q.y.length);
-	qat_session->xform.ec.q.y.length = xform->ec.q.y.length;
 	qat_session->xform.ec.curve_id = xform->ec.curve_id;
-
-	return 0;
-
 }
 
 int
@@ -1412,7 +1373,7 @@ qat_asym_session_configure(struct rte_cryptodev *dev __rte_unused,
 	case RTE_CRYPTO_ASYM_XFORM_ECDSA:
 	case RTE_CRYPTO_ASYM_XFORM_ECPM:
 	case RTE_CRYPTO_ASYM_XFORM_ECDH:
-		ret = session_set_ec(qat_session, xform);
+		session_set_ec(qat_session, xform);
 		break;
 	case RTE_CRYPTO_ASYM_XFORM_SM2:
 		break;
@@ -1559,7 +1520,7 @@ qat_asym_dev_create(struct qat_pci_device *qat_pci_dev,
 
 	snprintf(name, RTE_CRYPTODEV_NAME_MAX_LEN, "%s_%s",
 			qat_pci_dev->name, "asym");
-	QAT_LOG(DEBUG, "Creating QAT ASYM device %s", name);
+	QAT_LOG(DEBUG, "Creating QAT ASYM device %s\n", name);
 
 	if (gen_dev_ops->cryptodev_ops == NULL) {
 		QAT_LOG(ERR, "Device %s does not support asymmetric crypto",

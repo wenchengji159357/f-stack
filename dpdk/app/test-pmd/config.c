@@ -1891,7 +1891,8 @@ port_action_handle_flush(portid_t port_id)
 		/* Poisoning to make sure PMDs update it in case of error. */
 		memset(&error, 0x44, sizeof(error));
 		if (pia->handle != NULL) {
-			ret = pia->type == RTE_FLOW_ACTION_TYPE_INDIRECT_LIST ?
+			ret = pia->type ==
+			      RTE_FLOW_ACTION_TYPE_INDIRECT_LIST ?
 			      rte_flow_action_list_handle_destroy
 				      (port_id, pia->list_handle, &error) :
 			      rte_flow_action_handle_destroy
@@ -1901,9 +1902,11 @@ port_action_handle_flush(portid_t port_id)
 				       pia->id);
 				ret = port_flow_complain(&error);
 			}
+			tmp = &pia->next;
+		} else {
+			*tmp = pia->next;
+			free(pia);
 		}
-		*tmp = pia->next;
-		free(pia);
 	}
 	return ret;
 }
@@ -2219,7 +2222,7 @@ port_meter_policy_add(portid_t port_id, uint32_t policy_id,
 		for (act_n = 0, start = act;
 			act->type != RTE_FLOW_ACTION_TYPE_END; act++)
 			act_n++;
-		if (act_n > 0)
+		if (act_n && act->type == RTE_FLOW_ACTION_TYPE_END)
 			policy.actions[i] = start;
 		else
 			policy.actions[i] = NULL;
@@ -2786,7 +2789,8 @@ port_queue_flow_create(portid_t port_id, queueid_t queue_id,
 		flow = rte_flow_async_create_by_index(port_id, queue_id, &op_attr, pt->table,
 			rule_idx, actions, actions_idx, job, &error);
 	if (!flow) {
-		free(pf);
+		uint64_t flow_id = pf->id;
+		port_queue_flow_destroy(port_id, queue_id, true, 1, &flow_id);
 		free(job);
 		return port_flow_complain(&error);
 	}
@@ -2993,7 +2997,6 @@ port_queue_flow_update(portid_t port_id, queueid_t queue_id,
 int
 port_queue_action_handle_create(portid_t port_id, uint32_t queue_id,
 				bool postpone, uint32_t id,
-				bool indirect_list,
 				const struct rte_flow_indir_action_conf *conf,
 				const struct rte_flow_action *action)
 {
@@ -3003,6 +3006,8 @@ port_queue_action_handle_create(portid_t port_id, uint32_t queue_id,
 	int ret;
 	struct rte_flow_error error;
 	struct queue_job *job;
+	bool is_indirect_list = action[1].type != RTE_FLOW_ACTION_TYPE_END;
+
 
 	ret = action_alloc(port_id, id, &pia);
 	if (ret)
@@ -3024,7 +3029,7 @@ port_queue_action_handle_create(portid_t port_id, uint32_t queue_id,
 	/* Poisoning to make sure PMDs update it in case of error. */
 	memset(&error, 0x88, sizeof(error));
 
-	if (indirect_list)
+	if (is_indirect_list)
 		queue_action_list_handle_create(port_id, queue_id, pia, job,
 						&attr, conf, action, &error);
 	else
@@ -3913,10 +3918,8 @@ port_flow_aged(portid_t port_id, uint8_t destroy)
 		}
 		type = (enum age_action_context_type *)contexts[idx];
 		switch (*type) {
-		case ACTION_AGE_CONTEXT_TYPE_FLOW: {
-			uint64_t flow_id;
+		case ACTION_AGE_CONTEXT_TYPE_FLOW:
 			ctx.pf = container_of(type, struct port_flow, age_type);
-			flow_id = ctx.pf->id;
 			printf("%-20s\t%" PRIu64 "\t%" PRIu32 "\t%" PRIu32
 								 "\t%c%c%c\t\n",
 			       "Flow",
@@ -3927,10 +3930,9 @@ port_flow_aged(portid_t port_id, uint8_t destroy)
 			       ctx.pf->rule.attr->egress ? 'e' : '-',
 			       ctx.pf->rule.attr->transfer ? 't' : '-');
 			if (destroy && !port_flow_destroy(port_id, 1,
-							  &flow_id, false))
+							  &ctx.pf->id, false))
 				total++;
 			break;
-		}
 		case ACTION_AGE_CONTEXT_TYPE_INDIRECT_ACTION:
 			ctx.pia = container_of(type,
 					struct port_indirect_action, age_type);
@@ -4546,12 +4548,11 @@ port_rss_hash_key_update(portid_t port_id, char rss_type[], uint8_t *hash_key,
 
 	rss_conf.rss_key = NULL;
 	rss_conf.rss_key_len = 0;
-	rss_conf.rss_hf = 0;
+	rss_conf.rss_hf = str_to_rsstypes(rss_type);
 	diag = rte_eth_dev_rss_hash_conf_get(port_id, &rss_conf);
 	if (diag == 0) {
 		rss_conf.rss_key = hash_key;
 		rss_conf.rss_key_len = hash_key_len;
-		rss_conf.rss_hf = str_to_rsstypes(rss_type);
 		diag = rte_eth_dev_rss_hash_update(port_id, &rss_conf);
 	}
 	if (diag == 0)
@@ -4610,9 +4611,9 @@ fwd_stream_on_other_lcores(uint16_t domain_id, lcoreid_t src_lc,
 				continue;
 			printf("Shared Rx queue group %u queue %hu can't be scheduled on different cores:\n",
 			       share_group, share_rxq);
-			printf("  lcore %u Port %hu queue %hu\n",
+			printf("  lcore %hhu Port %hu queue %hu\n",
 			       src_lc, src_port, src_rxq);
-			printf("  lcore %u Port %hu queue %hu\n",
+			printf("  lcore %hhu Port %hu queue %hu\n",
 			       lc_id, fs->rx_port, fs->rx_queue);
 			printf("Please use --nb-cores=%hu to limit number of forwarding cores\n",
 			       nb_rxq);
@@ -4793,6 +4794,7 @@ rss_fwd_config_setup(void)
 	queueid_t  nb_q;
 	streamid_t  sm_id;
 	int start;
+	int end;
 
 	nb_q = nb_rxq;
 	if (nb_q > nb_txq)
@@ -4800,7 +4802,7 @@ rss_fwd_config_setup(void)
 	cur_fwd_config.nb_fwd_lcores = (lcoreid_t) nb_fwd_lcores;
 	cur_fwd_config.nb_fwd_ports = nb_fwd_ports;
 	cur_fwd_config.nb_fwd_streams =
-		(streamid_t) (nb_q / num_procs * cur_fwd_config.nb_fwd_ports);
+		(streamid_t) (nb_q * cur_fwd_config.nb_fwd_ports);
 
 	if (cur_fwd_config.nb_fwd_streams < cur_fwd_config.nb_fwd_lcores)
 		cur_fwd_config.nb_fwd_lcores =
@@ -4822,6 +4824,7 @@ rss_fwd_config_setup(void)
 	 * the 2~3 queue for secondary process.
 	 */
 	start = proc_id * nb_q / num_procs;
+	end = start + nb_q / num_procs;
 	rxp = 0;
 	rxq = start;
 	for (sm_id = 0; sm_id < cur_fwd_config.nb_fwd_streams; sm_id++) {
@@ -4840,6 +4843,8 @@ rss_fwd_config_setup(void)
 			continue;
 		rxp = 0;
 		rxq++;
+		if (rxq >= end)
+			rxq = start;
 	}
 }
 
@@ -4984,7 +4989,7 @@ icmp_echo_config_setup(void)
 	lcoreid_t lc_id;
 	uint16_t  sm_id;
 
-	if ((lcoreid_t)(nb_txq * nb_fwd_ports) < nb_fwd_lcores)
+	if ((nb_txq * nb_fwd_ports) < nb_fwd_lcores)
 		cur_fwd_config.nb_fwd_lcores = (lcoreid_t)
 			(nb_txq * nb_fwd_ports);
 	else
@@ -6910,8 +6915,8 @@ port_dcb_info_display(portid_t port_id)
 	printf("\n  TC :        ");
 	for (i = 0; i < dcb_info.nb_tcs; i++)
 		printf("\t%4d", i);
-	printf("\n  Prio2TC :  ");
-	for (i = 0; i < RTE_ETH_DCB_NUM_USER_PRIORITIES; i++)
+	printf("\n  Priority :  ");
+	for (i = 0; i < dcb_info.nb_tcs; i++)
 		printf("\t%4d", dcb_info.prio_tc[i]);
 	printf("\n  BW percent :");
 	for (i = 0; i < dcb_info.nb_tcs; i++)

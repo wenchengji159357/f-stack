@@ -226,8 +226,6 @@ eal_save_args(int argc, char **argv)
 		if (strcmp(argv[i], "--") == 0)
 			break;
 		eal_args[i] = strdup(argv[i]);
-		if (eal_args[i] == NULL)
-			goto error;
 	}
 	eal_args[i++] = NULL; /* always finish with NULL */
 
@@ -237,31 +235,13 @@ eal_save_args(int argc, char **argv)
 
 	eal_app_args = calloc(argc - i + 1, sizeof(*eal_args));
 	if (eal_app_args == NULL)
-		goto error;
+		return -1;
 
-	for (j = 0; i < argc; j++, i++) {
+	for (j = 0; i < argc; j++, i++)
 		eal_app_args[j] = strdup(argv[i]);
-		if (eal_app_args[j] == NULL)
-			goto error;
-	}
 	eal_app_args[j] = NULL;
 
 	return 0;
-
-error:
-	if (eal_app_args != NULL) {
-		i = 0;
-		while (eal_app_args[i] != NULL)
-			free(eal_app_args[i++]);
-		free(eal_app_args);
-		eal_app_args = NULL;
-	}
-	i = 0;
-	while (eal_args[i] != NULL)
-		free(eal_args[i++]);
-	free(eal_args);
-	eal_args = NULL;
-	return -1;
 }
 #endif
 
@@ -2025,11 +2005,6 @@ eal_adjust_config(struct internal_config *internal_cfg)
 	if (!core_parsed)
 		eal_auto_detect_cores(cfg);
 
-	if (cfg->lcore_count == 0) {
-		RTE_LOG(ERR, EAL, "No detected lcore is enabled, please check the core list\n");
-		return -1;
-	}
-
 	if (internal_conf->process_type == RTE_PROC_AUTO)
 		internal_conf->process_type = eal_proc_type_detect();
 
@@ -2166,7 +2141,7 @@ rte_vect_set_max_simd_bitwidth(uint16_t bitwidth)
 	struct internal_config *internal_conf =
 		eal_get_internal_configuration();
 	if (internal_conf->max_simd_bitwidth.forced) {
-		RTE_LOG(NOTICE, EAL, "Cannot set max SIMD bitwidth - user runtime override enabled\n");
+		RTE_LOG(NOTICE, EAL, "Cannot set max SIMD bitwidth - user runtime override enabled");
 		return -EPERM;
 	}
 
@@ -2196,7 +2171,6 @@ eal_common_usage(void)
 	       "                      '( )' can be omitted for single element group,\n"
 	       "                      '@' can be omitted if cpus and lcores have the same value\n"
 	       "  -s SERVICE COREMASK Hexadecimal bitmask of cores to be used as service cores\n"
-	       "  -S SERVICE CORELIST List of cores to run services on\n"
 	       "  --"OPT_MAIN_LCORE" ID     Core ID that is used as main\n"
 	       "  --"OPT_MBUF_POOL_OPS_NAME" Pool ops name for mbuf to use\n"
 	       "  -n CHANNELS         Number of memory channels\n"

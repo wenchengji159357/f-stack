@@ -104,7 +104,7 @@ enum hns3_mod_name_list {
 	MODULE_RCB_TX,
 	MODULE_TXDMA,
 	MODULE_MASTER,
-	MODULE_HIMAC,
+	MODULE_ROH_MAC,
 };
 
 enum hns3_err_type_list {

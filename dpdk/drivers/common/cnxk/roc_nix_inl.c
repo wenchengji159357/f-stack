@@ -620,7 +620,8 @@ roc_nix_reassembly_configure(uint32_t max_wait_time, uint16_t max_frags)
 		return -EFAULT;
 
 	PLT_SET_USED(max_frags);
-
+	if (idev == NULL)
+		return -ENOTSUP;
 	roc_cpt = idev->cpt;
 	if (!roc_cpt) {
 		plt_err("Cannot support inline inbound, cryptodev not probed");
@@ -813,7 +814,7 @@ int
 roc_nix_inl_inb_init(struct roc_nix *roc_nix)
 {
 	struct nix *nix = roc_nix_to_nix_priv(roc_nix);
-	struct roc_cpt_inline_ipsec_inb_cfg cfg = {0};
+	struct roc_cpt_inline_ipsec_inb_cfg cfg;
 	struct idev_cfg *idev = idev_get_cfg();
 	struct nix_inl_dev *inl_dev;
 	uint16_t bpids[ROC_NIX_MAX_BPID_CNT];
@@ -875,8 +876,7 @@ roc_nix_inl_inb_init(struct roc_nix *roc_nix)
 	inl_dev = idev->nix_inl_dev;
 
 	roc_nix->custom_meta_aura_ena = (roc_nix->local_meta_aura_ena &&
-					 ((inl_dev && inl_dev->is_multi_channel) ||
-					  roc_nix->custom_sa_action));
+					 (inl_dev->is_multi_channel || roc_nix->custom_sa_action));
 	if (!roc_model_is_cn9k() && !roc_errata_nix_no_meta_aura()) {
 		nix->need_meta_aura = true;
 		if (!roc_nix->local_meta_aura_ena || roc_nix->custom_meta_aura_ena)
@@ -1619,7 +1619,7 @@ roc_nix_inl_sa_sync(struct roc_nix *roc_nix, void *sa, bool inb,
 	if (idev)
 		inl_dev = idev->nix_inl_dev;
 
-	if ((!inl_dev && roc_nix == NULL) || sa == NULL)
+	if (!inl_dev && roc_nix == NULL)
 		return -EINVAL;
 
 	if (roc_nix) {
@@ -1669,7 +1669,6 @@ roc_nix_inl_ctx_write(struct roc_nix *roc_nix, void *sa_dptr, void *sa_cptr,
 	struct nix_inl_dev *inl_dev = NULL;
 	struct roc_cpt_lf *outb_lf = NULL;
 	union cpt_lf_ctx_flush flush;
-	union cpt_lf_ctx_err err;
 	bool get_inl_lf = true;
 	uintptr_t rbase;
 	struct nix *nix;
@@ -1683,7 +1682,7 @@ roc_nix_inl_ctx_write(struct roc_nix *roc_nix, void *sa_dptr, void *sa_cptr,
 	if (idev)
 		inl_dev = idev->nix_inl_dev;
 
-	if ((!inl_dev && roc_nix == NULL) || sa_dptr == NULL || sa_cptr == NULL)
+	if (!inl_dev && roc_nix == NULL)
 		return -EINVAL;
 
 	if (roc_nix) {
@@ -1711,13 +1710,6 @@ roc_nix_inl_ctx_write(struct roc_nix *roc_nix, void *sa_dptr, void *sa_cptr,
 		flush.s.cptr = ((uintptr_t)sa_cptr) >> 7;
 		plt_write64(flush.u, rbase + CPT_LF_CTX_FLUSH);
 
-		plt_atomic_thread_fence(__ATOMIC_ACQ_REL);
-
-		/* Read a CSR to ensure that the FLUSH operation is complete */
-		err.u = plt_read64(rbase + CPT_LF_CTX_ERR);
-
-		if (err.s.flush_st_flt)
-			plt_warn("CTX flush could not complete");
 		return 0;
 	}
 	plt_nix_dbg("Could not get CPT LF for CTX write");

@@ -334,7 +334,7 @@ ice_fdir_counter_alloc(struct ice_pf *pf, uint32_t shared, uint32_t id)
 	}
 
 	if (!counter_free) {
-		PMD_DRV_LOG(ERR, "No free counter found");
+		PMD_DRV_LOG(ERR, "No free counter found\n");
 		return NULL;
 	}
 
@@ -2434,7 +2434,7 @@ ice_fdir_parse(struct ice_adapter *ad,
 	       uint32_t array_len,
 	       const struct rte_flow_item pattern[],
 	       const struct rte_flow_action actions[],
-	       uint32_t priority __rte_unused,
+	       uint32_t priority,
 	       void **meta,
 	       struct rte_flow_error *error)
 {
@@ -2448,6 +2448,9 @@ ice_fdir_parse(struct ice_adapter *ad,
 	memset(filter, 0, sizeof(*filter));
 	item = ice_search_pattern_match_item(ad, pattern, array, array_len,
 					     error);
+
+	if (priority >= 1)
+		return -rte_errno;
 
 	if (!item)
 		return -rte_errno;

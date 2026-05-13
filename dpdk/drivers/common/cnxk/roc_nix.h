@@ -267,6 +267,8 @@ struct roc_nix_eeprom_info {
 #define ROC_NIX_RSS_KEY_LEN	     48 /* 352 Bits */
 #define ROC_NIX_RSS_MCAM_IDX_DEFAULT (-1)
 
+#define ROC_NIX_DEFAULT_HW_FRS 1514
+
 #define ROC_NIX_VWQE_MAX_SIZE_LOG2 11
 #define ROC_NIX_VWQE_MIN_SIZE_LOG2 2
 
@@ -354,8 +356,6 @@ struct roc_nix_rq {
 	bool lpb_drop_ena;
 	/* SPB aura drop enable */
 	bool spb_drop_ena;
-	/* XQE drop enable */
-	bool xqe_drop_ena;
 	/* End of Input parameters */
 	struct roc_nix *roc_nix;
 	uint64_t meta_aura_handle;

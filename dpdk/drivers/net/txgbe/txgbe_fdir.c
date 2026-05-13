@@ -187,12 +187,18 @@ txgbe_fdir_set_input_mask(struct rte_eth_dev *dev)
 		return -ENOTSUP;
 	}
 
-	/* use the L4 protocol mask for raw IPv4/IPv6 traffic */
-	if (info->mask.pkt_type_mask == 0 && info->mask.dst_port_mask == 0 &&
-	    info->mask.src_port_mask == 0)
-		info->mask.pkt_type_mask |= TXGBE_FDIRMSK_L4P;
+	/*
+	 * Program the relevant mask registers.  If src/dst_port or src/dst_addr
+	 * are zero, then assume a full mask for that field. Also assume that
+	 * a VLAN of 0 is unspecified, so mask that out as well.  L4type
+	 * cannot be masked out in this implementation.
+	 */
+	if (info->mask.dst_port_mask == 0 && info->mask.src_port_mask == 0) {
+		/* use the L4 protocol mask for raw IPv4/IPv6 traffic */
+		fdirm |= TXGBE_FDIRMSK_L4P;
+	}
 
-	fdirm |= info->mask.pkt_type_mask;
+	/* TBD: don't support encapsulation yet */
 	wr32(hw, TXGBE_FDIRMSK, fdirm);
 
 	/* store the TCP/UDP port masks */
@@ -252,24 +258,9 @@ txgbe_fdir_store_input_mask(struct rte_eth_dev *dev)
 	return 0;
 }
 
-uint16_t
-txgbe_fdir_get_flex_base(struct txgbe_fdir_rule *rule)
-{
-	if (!rule->flex_relative)
-		return TXGBE_FDIRFLEXCFG_BASE_MAC;
-
-	if (rule->input.flow_type & TXGBE_ATR_L4TYPE_MASK)
-		return TXGBE_FDIRFLEXCFG_BASE_PAY;
-
-	if (rule->input.flow_type & TXGBE_ATR_L3TYPE_MASK)
-		return TXGBE_FDIRFLEXCFG_BASE_L3;
-
-	return TXGBE_FDIRFLEXCFG_BASE_L2;
-}
-
 int
 txgbe_fdir_set_flexbytes_offset(struct rte_eth_dev *dev,
-				uint16_t offset, uint16_t flex_base)
+				uint16_t offset)
 {
 	struct txgbe_hw *hw = TXGBE_DEV_HW(dev);
 	int i;
@@ -277,7 +268,7 @@ txgbe_fdir_set_flexbytes_offset(struct rte_eth_dev *dev,
 	for (i = 0; i < 64; i++) {
 		uint32_t flexreg, flex;
 		flexreg = rd32(hw, TXGBE_FDIRFLEXCFG(i / 4));
-		flex = flex_base;
+		flex = TXGBE_FDIRFLEXCFG_BASE_MAC;
 		flex |= TXGBE_FDIRFLEXCFG_OFST(offset / 2);
 		flexreg &= ~(TXGBE_FDIRFLEXCFG_ALL(~0UL, i % 4));
 		flexreg |= TXGBE_FDIRFLEXCFG_ALL(flex, i % 4);
@@ -853,9 +844,6 @@ txgbe_fdir_filter_program(struct rte_eth_dev *dev,
 		return -EINVAL;
 	}
 
-	if (RTE_ETH_DEV_SRIOV(dev).active)
-		queue = RTE_ETH_DEV_SRIOV(dev).def_pool_q_idx + queue;
-
 	node = txgbe_fdir_filter_lookup(info, &rule->input);
 	if (node) {
 		if (!update) {
@@ -918,11 +906,6 @@ txgbe_fdir_flush(struct rte_eth_dev *dev)
 	info->f_remove = 0;
 	info->add = 0;
 	info->remove = 0;
-
-	memset(&info->mask, 0, sizeof(struct txgbe_hw_fdir_mask));
-	info->mask_added = false;
-	info->flex_relative = false;
-	info->flex_bytes_offset = 0;
 
 	return ret;
 }

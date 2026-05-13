@@ -328,9 +328,6 @@ nix_tm_bp_config_set(struct roc_nix *roc_nix, uint16_t sq, uint16_t tc,
 	uint8_t k = 0;
 	int rc = 0, i;
 
-	if (roc_nix_is_sdp(roc_nix))
-		return 0;
-
 	sq_s = nix->sqs[sq];
 	if (!sq_s)
 		return -ENOENT;
@@ -906,7 +903,7 @@ nix_tm_sq_flush_pre(struct roc_nix_sq *sq)
 			if (rc) {
 				roc_nix_tm_dump(sq->roc_nix, NULL);
 				roc_nix_queues_ctx_dump(sq->roc_nix, NULL);
-				plt_err("Failed to drain sq %u, rc=%d", sq->qid, rc);
+				plt_err("Failed to drain sq %u, rc=%d\n", sq->qid, rc);
 				return rc;
 			}
 			/* Freed all pending SQEs for this SQ, so disable this node */

@@ -173,17 +173,17 @@ fs_rx_event_proxy_service_install(struct fs_priv *priv)
 		/* run the service */
 		ret = rte_service_component_runstate_set(priv->rxp.sid, 1);
 		if (ret < 0) {
-			ERROR("Failed Setting component runstate");
+			ERROR("Failed Setting component runstate\n");
 			return ret;
 		}
 		ret = rte_service_set_stats_enable(priv->rxp.sid, 1);
 		if (ret < 0) {
-			ERROR("Failed enabling stats");
+			ERROR("Failed enabling stats\n");
 			return ret;
 		}
 		ret = rte_service_runstate_set(priv->rxp.sid, 1);
 		if (ret < 0) {
-			ERROR("Failed to run service");
+			ERROR("Failed to run service\n");
 			return ret;
 		}
 		priv->rxp.sstate = SS_READY;

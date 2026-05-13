@@ -34,30 +34,24 @@ cnxk_gpio_attr_exists(const char *attr)
 static int
 cnxk_gpio_read_attr(char *attr, char *val)
 {
-	int ret, ret2;
 	FILE *fp;
+	int ret;
 
 	fp = fopen(attr, "r");
 	if (!fp)
 		return -errno;
 
 	ret = fscanf(fp, "%s", val);
-	if (ret < 0) {
-		ret = -errno;
-		goto out;
-	}
-	if (ret != 1) {
-		ret = -EIO;
-		goto out;
-	}
+	if (ret < 0)
+		return -errno;
+	if (ret != 1)
+		return -EIO;
 
-	ret = 0;
-out:
-	ret2 = fclose(fp);
-	if (!ret)
-		ret = ret2;
+	ret = fclose(fp);
+	if (ret)
+		return -errno;
 
-	return ret;
+	return 0;
 }
 
 #define CNXK_GPIO_ERR_STR(err, str, ...) do {                                  \

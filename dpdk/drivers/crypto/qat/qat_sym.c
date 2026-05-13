@@ -18,6 +18,7 @@
 #include "qat_qp.h"
 
 uint8_t qat_sym_driver_id;
+int qat_legacy_capa;
 
 struct qat_crypto_gen_dev_ops qat_sym_gen_dev_ops[QAT_N_GENS];
 
@@ -265,7 +266,7 @@ qat_sym_dev_create(struct qat_pci_device *qat_pci_dev,
 		}
 
 		cryptodev->feature_flags |= RTE_CRYPTODEV_FF_SECURITY;
-		QAT_LOG(INFO, "Device %s rte_security support enabled", name);
+		QAT_LOG(INFO, "Device %s rte_security support ensabled", name);
 	} else {
 		QAT_LOG(INFO, "Device %s rte_security support disabled", name);
 	}

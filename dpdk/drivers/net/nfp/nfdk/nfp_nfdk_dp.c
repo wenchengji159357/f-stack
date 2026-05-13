@@ -167,7 +167,7 @@ close_block:
 	return nop_slots;
 }
 
-static int
+static void
 nfp_net_nfdk_set_meta_data(struct rte_mbuf *pkt,
 		struct nfp_net_txq *txq,
 		uint64_t *metadata)
@@ -178,6 +178,7 @@ nfp_net_nfdk_set_meta_data(struct rte_mbuf *pkt,
 	uint32_t cap_extend;
 	struct nfp_net_hw *hw;
 	uint32_t header_offset;
+	uint8_t vlan_layer = 0;
 	uint8_t ipsec_layer = 0;
 	struct nfp_net_meta_raw meta_data;
 
@@ -205,10 +206,8 @@ nfp_net_nfdk_set_meta_data(struct rte_mbuf *pkt,
 		meta_data.length += 3 * NFP_NET_META_FIELD_SIZE;
 	}
 
-	if (meta_data.length == 0) {
-		*metadata = 0;
-		return 0;
-	}
+	if (meta_data.length == 0)
+		return;
 
 	meta_type = meta_data.header;
 	header_offset = meta_type << NFP_NET_META_NFDK_LENGTH;
@@ -222,13 +221,17 @@ nfp_net_nfdk_set_meta_data(struct rte_mbuf *pkt,
 			meta += NFP_NET_META_FIELD_SIZE) {
 		switch (meta_type & NFP_NET_META_FIELD_MASK) {
 		case NFP_NET_META_VLAN:
-
+			if (vlan_layer > 0) {
+				PMD_DRV_LOG(ERR, "At most 1 layers of vlan is supported");
+				return;
+			}
 			nfp_net_set_meta_vlan(&meta_data, pkt, layer);
+			vlan_layer++;
 			break;
 		case NFP_NET_META_IPSEC:
 			if (ipsec_layer > 2) {
 				PMD_DRV_LOG(ERR, "At most 3 layers of ipsec is supported for now.");
-				return -EINVAL;
+				return;
 			}
 
 			nfp_net_set_meta_ipsec(&meta_data, txq, pkt, layer, ipsec_layer);
@@ -236,15 +239,13 @@ nfp_net_nfdk_set_meta_data(struct rte_mbuf *pkt,
 			break;
 		default:
 			PMD_DRV_LOG(ERR, "The metadata type not supported");
-			return -ENOTSUP;
+			return;
 		}
 
 		memcpy(meta, &meta_data.data[layer], sizeof(meta_data.data[layer]));
 	}
 
 	*metadata = NFDK_DESC_TX_CHAIN_META;
-
-	return 0;
 }
 
 uint16_t
@@ -291,7 +292,6 @@ nfp_net_nfdk_xmit_pkts_common(void *tx_queue,
 
 	/* Sending packets */
 	while (npkts < nb_pkts && free_descs > 0) {
-		int ret;
 		int nop_descs;
 		uint32_t type;
 		uint32_t dma_len;
@@ -319,13 +319,10 @@ nfp_net_nfdk_xmit_pkts_common(void *tx_queue,
 
 		temp_pkt = pkt;
 
-		if (repr_flag) {
+		if (repr_flag)
 			metadata = NFDK_DESC_TX_CHAIN_META;
-		} else {
-			ret = nfp_net_nfdk_set_meta_data(pkt, txq, &metadata);
-			if (unlikely(ret != 0))
-				goto xmit_end;
-		}
+		else
+			nfp_net_nfdk_set_meta_data(pkt, txq, &metadata);
 
 		if (unlikely(pkt->nb_segs > 1 &&
 				(hw->super.cap & NFP_NET_CFG_CTRL_GATHER) == 0)) {

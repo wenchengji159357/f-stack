@@ -906,7 +906,7 @@ mlx5_flow_ipool_create(struct mlx5_dev_ctx_shared *sh)
 		 */
 		case MLX5_IPOOL_MLX5_FLOW:
 			cfg.size = sh->config.dv_flow_en ?
-				RTE_ALIGN_MUL_CEIL(sizeof(struct mlx5_flow_handle), 8) :
+				sizeof(struct mlx5_flow_handle) :
 				MLX5_FLOW_HANDLE_VERBS_SIZE;
 			break;
 #if defined(HAVE_IBV_FLOW_DV_SUPPORT) || !defined(HAVE_INFINIBAND_VERBS_H)
@@ -1689,8 +1689,7 @@ mlx5_init_shared_dev_registers(struct mlx5_dev_ctx_shared *sh)
 	} else {
 		DRV_LOG(DEBUG, "ASO register: NONE");
 	}
-	if (sh->config.dv_flow_en == 2)
-		mlx5_init_hws_flow_tags_registers(sh);
+	mlx5_init_hws_flow_tags_registers(sh);
 }
 
 /**
@@ -2164,7 +2163,6 @@ int
 mlx5_proc_priv_init(struct rte_eth_dev *dev)
 {
 	struct mlx5_priv *priv = dev->data->dev_private;
-	struct mlx5_dev_ctx_shared *sh = priv->sh;
 	struct mlx5_proc_priv *ppriv;
 	size_t ppriv_size;
 
@@ -2185,9 +2183,6 @@ mlx5_proc_priv_init(struct rte_eth_dev *dev)
 	dev->process_private = ppriv;
 	if (rte_eal_process_type() == RTE_PROC_PRIMARY)
 		priv->sh->pppriv = ppriv;
-	/* Check and try to map HCA PCI BAR to allow reading real time. */
-	if (sh->dev_cap.rt_timestamp && mlx5_dev_is_pci(dev->device))
-		mlx5_txpp_map_hca_bar(dev);
 	return 0;
 }
 
@@ -2272,7 +2267,6 @@ mlx5_dev_close(struct rte_eth_dev *dev)
 	mlx5_indirect_list_handles_release(dev);
 #ifdef HAVE_MLX5_HWS_SUPPORT
 	flow_hw_destroy_vport_action(dev);
-	/* dr context will be closed after mlx5_os_free_shared_dr. */
 	flow_hw_resource_release(dev);
 	flow_hw_clear_port_info(dev);
 #endif
@@ -2285,7 +2279,7 @@ mlx5_dev_close(struct rte_eth_dev *dev)
 		mlx5_free(priv->rxq_privs);
 		priv->rxq_privs = NULL;
 	}
-	if (priv->txqs != NULL && dev->data->tx_queues != NULL) {
+	if (priv->txqs != NULL) {
 		/* XXX race condition if mlx5_tx_burst() is still running. */
 		rte_delay_us_sleep(1000);
 		for (i = 0; (i != priv->txqs_n); ++i)
@@ -2294,20 +2288,16 @@ mlx5_dev_close(struct rte_eth_dev *dev)
 		priv->txqs = NULL;
 	}
 	mlx5_proc_priv_uninit(dev);
-	if (priv->drop_queue.hrxq)
-		mlx5_drop_action_destroy(dev);
 	if (priv->q_counters) {
 		mlx5_devx_cmd_destroy(priv->q_counters);
 		priv->q_counters = NULL;
 	}
+	if (priv->drop_queue.hrxq)
+		mlx5_drop_action_destroy(dev);
+	if (priv->mreg_cp_tbl)
+		mlx5_hlist_destroy(priv->mreg_cp_tbl);
 	mlx5_mprq_free_mp(dev);
 	mlx5_os_free_shared_dr(priv);
-#ifdef HAVE_MLX5_HWS_SUPPORT
-	if (priv->dr_ctx) {
-		claim_zero(mlx5dr_context_close(priv->dr_ctx));
-		priv->dr_ctx = NULL;
-	}
-#endif
 	if (priv->rss_conf.rss_key != NULL)
 		mlx5_free(priv->rss_conf.rss_key);
 	if (priv->reta_idx != NULL)

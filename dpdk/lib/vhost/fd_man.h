@@ -6,7 +6,6 @@
 #define _FD_MAN_H_
 #include <pthread.h>
 #include <poll.h>
-#include <stdbool.h>
 
 #define MAX_FDS 1024
 
@@ -36,10 +35,6 @@ struct fdset {
 			int writefd;
 		};
 	} u;
-
-	pthread_mutex_t sync_mutex;
-	pthread_cond_t sync_cond;
-	bool sync;
 };
 
 
@@ -58,6 +53,5 @@ int fdset_pipe_init(struct fdset *fdset);
 void fdset_pipe_uninit(struct fdset *fdset);
 
 void fdset_pipe_notify(struct fdset *fdset);
-void fdset_pipe_notify_sync(struct fdset *fdset);
 
 #endif

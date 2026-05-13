@@ -263,8 +263,6 @@ ngbe_pf_reset_hw(struct ngbe_hw *hw)
 	status = hw->mac.reset_hw(hw);
 
 	ctrl_ext = rd32(hw, NGBE_PORTCTL);
-	/* let hardware know driver is loaded */
-	ctrl_ext |= NGBE_PORTCTL_DRVLOAD;
 	/* Set PF Reset Done bit so PF/VF Mail Ops can work */
 	ctrl_ext |= NGBE_PORTCTL_RSTDONE;
 	wr32(hw, NGBE_PORTCTL, ctrl_ext);
@@ -383,7 +381,7 @@ eth_ngbe_dev_init(struct rte_eth_dev *eth_dev, void *init_params __rte_unused)
 		ssid = ngbe_flash_read_dword(hw, 0xFFFDC);
 		if (ssid == 0x1) {
 			PMD_INIT_LOG(ERR,
-				"Read of internal subsystem device id failed");
+				"Read of internal subsystem device id failed\n");
 			return -ENODEV;
 		}
 		hw->sub_system_id = (u16)ssid >> 8 | (u16)ssid << 8;
@@ -548,7 +546,7 @@ static int eth_ngbe_pci_remove(struct rte_pci_device *pci_dev)
 	if (ethdev == NULL)
 		return 0;
 
-	return rte_eth_dev_pci_generic_remove(pci_dev, eth_ngbe_dev_uninit);
+	return rte_eth_dev_destroy(ethdev, eth_ngbe_dev_uninit);
 }
 
 static struct rte_pci_driver rte_ngbe_pmd = {
@@ -584,25 +582,41 @@ ngbe_vlan_filter_set(struct rte_eth_dev *dev, uint16_t vlan_id, int on)
 }
 
 static void
-ngbe_vlan_strip_q_set(struct rte_eth_dev *dev, uint16_t queue, int on)
+ngbe_vlan_strip_queue_set(struct rte_eth_dev *dev, uint16_t queue, int on)
 {
+	struct ngbe_hw *hw = ngbe_dev_hw(dev);
+	struct ngbe_rx_queue *rxq;
+	bool restart;
+	uint32_t rxcfg, rxbal, rxbah;
+
 	if (on)
 		ngbe_vlan_hw_strip_enable(dev, queue);
 	else
 		ngbe_vlan_hw_strip_disable(dev, queue);
-}
 
-static void
-ngbe_vlan_strip_queue_set(struct rte_eth_dev *dev, uint16_t queue, int on)
-{
-	struct ngbe_hw *hw = ngbe_dev_hw(dev);
-
-	if (!hw->adapter_stopped) {
-		PMD_DRV_LOG(ERR, "Please stop port first");
-		return;
+	rxq = dev->data->rx_queues[queue];
+	rxbal = rd32(hw, NGBE_RXBAL(rxq->reg_idx));
+	rxbah = rd32(hw, NGBE_RXBAH(rxq->reg_idx));
+	rxcfg = rd32(hw, NGBE_RXCFG(rxq->reg_idx));
+	if (rxq->offloads & RTE_ETH_RX_OFFLOAD_VLAN_STRIP) {
+		restart = (rxcfg & NGBE_RXCFG_ENA) &&
+			!(rxcfg & NGBE_RXCFG_VLAN);
+		rxcfg |= NGBE_RXCFG_VLAN;
+	} else {
+		restart = (rxcfg & NGBE_RXCFG_ENA) &&
+			(rxcfg & NGBE_RXCFG_VLAN);
+		rxcfg &= ~NGBE_RXCFG_VLAN;
 	}
+	rxcfg &= ~NGBE_RXCFG_ENA;
 
-	ngbe_vlan_strip_q_set(dev, queue, on);
+	if (restart) {
+		/* set vlan strip for ring */
+		ngbe_dev_rx_queue_stop(dev, queue);
+		wr32(hw, NGBE_RXBAL(rxq->reg_idx), rxbal);
+		wr32(hw, NGBE_RXBAH(rxq->reg_idx), rxbah);
+		wr32(hw, NGBE_RXCFG(rxq->reg_idx), rxcfg);
+		ngbe_dev_rx_queue_start(dev, queue);
+	}
 }
 
 static int
@@ -828,9 +842,9 @@ ngbe_vlan_hw_strip_config(struct rte_eth_dev *dev)
 		rxq = dev->data->rx_queues[i];
 
 		if (rxq->offloads & RTE_ETH_RX_OFFLOAD_VLAN_STRIP)
-			ngbe_vlan_strip_q_set(dev, i, 1);
+			ngbe_vlan_hw_strip_enable(dev, i);
 		else
-			ngbe_vlan_strip_q_set(dev, i, 0);
+			ngbe_vlan_hw_strip_disable(dev, i);
 	}
 }
 
@@ -892,13 +906,6 @@ ngbe_vlan_offload_config(struct rte_eth_dev *dev, int mask)
 static int
 ngbe_vlan_offload_set(struct rte_eth_dev *dev, int mask)
 {
-	struct ngbe_hw *hw = ngbe_dev_hw(dev);
-
-	if (!hw->adapter_stopped && (mask & RTE_ETH_VLAN_STRIP_MASK)) {
-		PMD_DRV_LOG(ERR, "Please stop port first");
-		return -EPERM;
-	}
-
 	ngbe_config_vlan_strip_on_all_queues(dev, mask);
 
 	ngbe_vlan_offload_config(dev, mask);
@@ -1262,9 +1269,6 @@ ngbe_dev_close(struct rte_eth_dev *dev)
 
 	ngbe_dev_stop(dev);
 
-	/* Let firmware take over control of hardware */
-	wr32m(hw, NGBE_PORTCTL, NGBE_PORTCTL_DRVLOAD, 0);
-
 	ngbe_dev_free_queues(dev);
 
 	ngbe_set_pcie_master(hw, false);
@@ -1421,7 +1425,7 @@ ngbe_read_stats_registers(struct ngbe_hw *hw,
 	hw_stats->rx_total_bytes += rd64(hw, NGBE_MACRXGBOCTL);
 
 	hw_stats->rx_broadcast_packets += rd64(hw, NGBE_MACRXOCTL);
-	hw_stats->tx_broadcast_packets += rd64(hw, NGBE_MACTXOCTL);
+	hw_stats->tx_broadcast_packets += rd32(hw, NGBE_MACTXOCTL);
 
 	hw_stats->rx_size_64_packets += rd64(hw, NGBE_MACRX1TO64L);
 	hw_stats->rx_size_65_to_127_packets += rd64(hw, NGBE_MACRX65TO127L);
@@ -1440,8 +1444,7 @@ ngbe_read_stats_registers(struct ngbe_hw *hw,
 	hw_stats->tx_size_1024_to_max_packets +=
 			rd64(hw, NGBE_MACTX1024TOMAXL);
 
-	hw_stats->rx_length_errors += rd64(hw, NGBE_MACRXERRLENL);
-	hw_stats->rx_undersize_errors += rd32(hw, NGBE_MACRXUNDERSIZE);
+	hw_stats->rx_undersize_errors += rd64(hw, NGBE_MACRXERRLENL);
 	hw_stats->rx_oversize_cnt += rd32(hw, NGBE_MACRXOVERSIZE);
 	hw_stats->rx_jabber_errors += rd32(hw, NGBE_MACRXJABBER);
 
@@ -1808,9 +1811,7 @@ ngbe_dev_info_get(struct rte_eth_dev *dev, struct rte_eth_dev_info *dev_info)
 	dev_info->max_rx_queues = (uint16_t)hw->mac.max_rx_queues;
 	dev_info->max_tx_queues = (uint16_t)hw->mac.max_tx_queues;
 	dev_info->min_rx_bufsize = 1024;
-	dev_info->max_rx_pktlen = NGBE_MAX_MTU + NGBE_ETH_OVERHEAD;
-	dev_info->min_mtu = RTE_ETHER_MIN_MTU;
-	dev_info->max_mtu = NGBE_MAX_MTU;
+	dev_info->max_rx_pktlen = 15872;
 	dev_info->max_mac_addrs = hw->mac.num_rar_entries;
 	dev_info->max_hash_mac_addrs = NGBE_VMDQ_NUM_UC_MAC;
 	dev_info->max_vfs = pci_dev->max_vfs;
@@ -1908,7 +1909,6 @@ ngbe_dev_link_update_share(struct rte_eth_dev *dev,
 	bool link_up;
 	int err;
 	int wait = 1;
-	u32 reg;
 
 	memset(&link, 0, sizeof(link));
 	link.link_status = RTE_ETH_LINK_DOWN;
@@ -1966,13 +1966,8 @@ ngbe_dev_link_update_share(struct rte_eth_dev *dev,
 			wr32m(hw, NGBE_MACTXCFG, NGBE_MACTXCFG_SPEED_MASK,
 				NGBE_MACTXCFG_SPEED_1G | NGBE_MACTXCFG_TE);
 		}
-		/* Re configure MAC RX */
-		reg = rd32(hw, NGBE_MACRXCFG);
-		wr32(hw, NGBE_MACRXCFG, reg);
 		wr32m(hw, NGBE_MACRXFLT, NGBE_MACRXFLT_PROMISC,
 			NGBE_MACRXFLT_PROMISC);
-		reg = rd32(hw, NGBE_MAC_WDG_TIMEOUT);
-		wr32(hw, NGBE_MAC_WDG_TIMEOUT, reg);
 	}
 
 	return rte_eth_linkstatus_set(dev, &link);
@@ -2159,19 +2154,6 @@ ngbe_dev_interrupt_get_status(struct rte_eth_dev *dev)
 	uint32_t eicr;
 	struct ngbe_hw *hw = ngbe_dev_hw(dev);
 	struct ngbe_interrupt *intr = ngbe_dev_intr(dev);
-
-	eicr = ((u32 *)hw->isb_mem)[NGBE_ISB_VEC0];
-	if (!eicr) {
-		/*
-		 * shared interrupt alert!
-		 * make sure interrupts are enabled because the read will
-		 * have disabled interrupts.
-		 */
-		if (!hw->adapter_stopped)
-			ngbe_enable_intr(dev);
-		return 0;
-	}
-	((u32 *)hw->isb_mem)[NGBE_ISB_VEC0] = 0;
 
 	/* read-on-clear nic registers here */
 	eicr = ((u32 *)hw->isb_mem)[NGBE_ISB_MISC];
@@ -2396,7 +2378,6 @@ ngbe_flow_ctrl_set(struct rte_eth_dev *dev, struct rte_eth_fc_conf *fc_conf)
 	hw->fc.low_water      = fc_conf->low_water;
 	hw->fc.send_xon       = fc_conf->send_xon;
 	hw->fc.disable_fc_autoneg = !fc_conf->autoneg;
-	hw->fc.mac_ctrl_frame_fwd = fc_conf->mac_ctrl_frame_fwd;
 
 	err = hw->mac.fc_enable(hw);
 

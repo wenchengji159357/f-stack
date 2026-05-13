@@ -263,6 +263,19 @@ nfp_bitsize_calc(uint64_t mask)
 	return bit_size;
 }
 
+static int
+nfp_cmp_bars(const void *ptr_a,
+		const void *ptr_b)
+{
+	const struct nfp_bar *a = ptr_a;
+	const struct nfp_bar *b = ptr_b;
+
+	if (a->bitsize == b->bitsize)
+		return a->index - b->index;
+	else
+		return a->bitsize - b->bitsize;
+}
+
 static bool
 nfp_bars_for_secondary(uint32_t index)
 {
@@ -370,6 +383,9 @@ nfp_enable_bars(struct nfp_pcie_user *nfp)
 	if (nfp_bar_write(nfp, bar, barcfg_msix_general) < 0)
 		return -EIO;
 
+	/* Sort bars by bit size - use the smallest possible first. */
+	qsort(&nfp->bar[0], nfp->bars, sizeof(nfp->bar[0]), nfp_cmp_bars);
+
 	return 0;
 }
 
@@ -450,18 +466,16 @@ find_matching_bar(struct nfp_pcie_user *nfp,
 		int width)
 {
 	uint32_t n;
-	uint32_t index;
 
-	for (n = RTE_DIM(nfp->bar) ; n > 0; n--) {
-		index = n - 1;
-		struct nfp_bar *bar = &nfp->bar[index];
+	for (n = 0; n < nfp->bars; n++) {
+		struct nfp_bar *bar = &nfp->bar[n];
 
 		if (bar->lock)
 			continue;
 
 		if (matching_bar_exist(bar, target, action, token,
 				offset, size, width))
-			return index;
+			return n;
 	}
 
 	return -1;
@@ -479,12 +493,10 @@ find_unused_bar_noblock(struct nfp_pcie_user *nfp,
 {
 	int ret;
 	uint32_t n;
-	uint32_t index;
 	const struct nfp_bar *bar;
 
-	for (n = RTE_DIM(nfp->bar); n > 0; n--) {
-		index = n - 1;
-		bar = &nfp->bar[index];
+	for (n = 0; n < nfp->bars; n++) {
+		bar = &nfp->bar[n];
 
 		if (bar->bitsize == 0)
 			continue;
@@ -496,7 +508,7 @@ find_unused_bar_noblock(struct nfp_pcie_user *nfp,
 			continue;
 
 		if (!bar->lock)
-			return index;
+			return n;
 	}
 
 	return -EAGAIN;
@@ -549,7 +561,7 @@ nfp_disable_bars(struct nfp_pcie_user *nfp)
 	uint32_t i;
 	struct nfp_bar *bar;
 
-	for (i = 0; i < RTE_DIM(nfp->bar); i++) {
+	for (i = 0; i < nfp->bars; i++) {
 		bar = &nfp->bar[i];
 		if (bar->iomem != NULL) {
 			bar->iomem = NULL;

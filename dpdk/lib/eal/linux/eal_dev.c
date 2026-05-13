@@ -129,6 +129,7 @@ dev_uev_socket_fd_create(void)
 	return 0;
 err:
 	close(fd);
+	fd = -1;
 	return ret;
 }
 
@@ -164,6 +165,8 @@ dev_uev_parse(const char *buf, struct rte_dev_event *event, int length)
 		 * uevent from udev.
 		 */
 		if (!strncmp(buf, "libudev", 7)) {
+			buf += 7;
+			i += 7;
 			return -1;
 		}
 		if (!strncmp(buf, "ACTION=", 7)) {
@@ -179,8 +182,6 @@ dev_uev_parse(const char *buf, struct rte_dev_event *event, int length)
 			i += 14;
 			strlcpy(pci_slot_name, buf, sizeof(subsystem));
 			event->devname = strdup(pci_slot_name);
-			if (event->devname == NULL)
-				return -1;
 		}
 		for (; i < length; i++) {
 			if (*buf == '\0')

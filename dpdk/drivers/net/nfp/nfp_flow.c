@@ -312,13 +312,13 @@ nfp_check_mask_add(struct nfp_flow_priv *priv,
 		ret = nfp_mask_table_add(priv, mask_data, mask_len, mask_id);
 		if (ret != 0)
 			return false;
-
-		*meta_flags |= NFP_FL_META_FLAG_MANAGE_MASK;
 	} else {
 		/* Mask entry already exist */
 		mask_entry->ref_cnt++;
 		*mask_id = mask_entry->mask_id;
 	}
+
+	*meta_flags |= NFP_FL_META_FLAG_MANAGE_MASK;
 
 	return true;
 }
@@ -3177,6 +3177,7 @@ nfp_pre_tun_table_check_del(struct nfp_flower_representor *repr,
 		goto free_entry;
 	}
 
+	rte_free(entry);
 	rte_free(find_entry);
 	priv->pre_tun_cnt--;
 
@@ -3657,7 +3658,7 @@ nfp_flow_compile_action(struct nfp_flower_representor *representor,
 					ttl_tos_flag = true;
 				}
 			} else {
-				nfp_flow_action_set_hl(position, action, tc_hl_flag);
+				nfp_flow_action_set_hl(position, action, ttl_tos_flag);
 				if (!tc_hl_flag) {
 					position += sizeof(struct nfp_fl_act_set_ipv6_tc_hl_fl);
 					tc_hl_flag = true;
@@ -3674,7 +3675,7 @@ nfp_flow_compile_action(struct nfp_flower_representor *representor,
 			break;
 		case RTE_FLOW_ACTION_TYPE_SET_IPV6_DSCP:
 			PMD_DRV_LOG(DEBUG, "Process RTE_FLOW_ACTION_TYPE_SET_IPV6_DSCP");
-			nfp_flow_action_set_tc(position, action, tc_hl_flag);
+			nfp_flow_action_set_tc(position, action, ttl_tos_flag);
 			if (!tc_hl_flag) {
 				position += sizeof(struct nfp_fl_act_set_ipv6_tc_hl_fl);
 				tc_hl_flag = true;
@@ -3738,11 +3739,6 @@ nfp_flow_compile_action(struct nfp_flower_representor *representor,
 			return -ENOTSUP;
 		}
 		total_actions++;
-	}
-
-	if (nfp_flow->install_flag && total_actions == 0) {
-		PMD_DRV_LOG(ERR, "The action list is empty");
-		return -ENOTSUP;
 	}
 
 	if (drop_flag)

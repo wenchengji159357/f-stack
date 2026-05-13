@@ -85,7 +85,7 @@ int txgbe_pf_host_init(struct rte_eth_dev *eth_dev)
 			sizeof(struct txgbe_vf_info) * vf_num, 0);
 	if (*vfinfo == NULL) {
 		PMD_INIT_LOG(ERR,
-			"Cannot allocate memory for private VF data");
+			"Cannot allocate memory for private VF data\n");
 		return -ENOMEM;
 	}
 
@@ -167,14 +167,14 @@ txgbe_add_tx_flow_control_drop_filter(struct rte_eth_dev *eth_dev)
 	struct txgbe_ethertype_filter ethertype_filter;
 
 	if (!hw->mac.set_ethertype_anti_spoofing) {
-		PMD_DRV_LOG(INFO, "ether type anti-spoofing is not supported.");
+		PMD_DRV_LOG(INFO, "ether type anti-spoofing is not supported.\n");
 		return;
 	}
 
 	i = txgbe_ethertype_filter_lookup(filter_info,
 					  TXGBE_ETHERTYPE_FLOW_CTRL);
 	if (i >= 0) {
-		PMD_DRV_LOG(ERR, "A ether type filter entity for flow control already exists!");
+		PMD_DRV_LOG(ERR, "A ether type filter entity for flow control already exists!\n");
 		return;
 	}
 
@@ -187,7 +187,7 @@ txgbe_add_tx_flow_control_drop_filter(struct rte_eth_dev *eth_dev)
 	i = txgbe_ethertype_filter_insert(filter_info,
 					  &ethertype_filter);
 	if (i < 0) {
-		PMD_DRV_LOG(ERR, "Cannot find an unused ether type filter entity for flow control.");
+		PMD_DRV_LOG(ERR, "Cannot find an unused ether type filter entity for flow control.\n");
 		return;
 	}
 
@@ -408,7 +408,7 @@ txgbe_disable_vf_mc_promisc(struct rte_eth_dev *eth_dev, uint32_t vf)
 
 	vmolr = rd32(hw, TXGBE_POOLETHCTL(vf));
 
-	PMD_DRV_LOG(INFO, "VF %u: disabling multicast promiscuous", vf);
+	PMD_DRV_LOG(INFO, "VF %u: disabling multicast promiscuous\n", vf);
 
 	vmolr &= ~TXGBE_POOLETHCTL_MCP;
 
@@ -570,7 +570,7 @@ txgbe_negotiate_vf_api(struct rte_eth_dev *eth_dev,
 		break;
 	}
 
-	PMD_DRV_LOG(ERR, "Negotiate invalid api version %u from VF %d",
+	PMD_DRV_LOG(ERR, "Negotiate invalid api version %u from VF %d\n",
 		api_version, vf);
 
 	return -1;
@@ -614,7 +614,7 @@ txgbe_get_vf_queues(struct rte_eth_dev *eth_dev, uint32_t vf, uint32_t *msgbuf)
 	case RTE_ETH_MQ_TX_NONE:
 	case RTE_ETH_MQ_TX_DCB:
 		PMD_DRV_LOG(ERR, "PF must work with virtualization for VF %u"
-			", but its tx mode = %d", vf,
+			", but its tx mode = %d\n", vf,
 			eth_conf->txmode.mq_mode);
 		return -1;
 
@@ -648,7 +648,7 @@ txgbe_get_vf_queues(struct rte_eth_dev *eth_dev, uint32_t vf, uint32_t *msgbuf)
 		break;
 
 	default:
-		PMD_DRV_LOG(ERR, "PF work with invalid mode = %d",
+		PMD_DRV_LOG(ERR, "PF work with invalid mode = %d\n",
 			eth_conf->txmode.mq_mode);
 		return -1;
 	}
@@ -704,7 +704,7 @@ txgbe_set_vf_mc_promisc(struct rte_eth_dev *eth_dev,
 		if (!(fctrl & TXGBE_PSRCTL_UCP)) {
 			/* VF promisc requires PF in promisc */
 			PMD_DRV_LOG(ERR,
-			       "Enabling VF promisc requires PF in promisc");
+			       "Enabling VF promisc requires PF in promisc\n");
 			return -1;
 		}
 
@@ -741,7 +741,7 @@ txgbe_set_vf_macvlan_msg(struct rte_eth_dev *dev, uint32_t vf, uint32_t *msgbuf)
 
 	if (index) {
 		if (!rte_is_valid_assigned_ether_addr(ea)) {
-			PMD_DRV_LOG(ERR, "set invalid mac vf:%d", vf);
+			PMD_DRV_LOG(ERR, "set invalid mac vf:%d\n", vf);
 			return -1;
 		}
 

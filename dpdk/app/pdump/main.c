@@ -171,9 +171,6 @@ parse_device_id(const char *key __rte_unused, const char *value,
 	struct pdump_tuples *pt = extra_args;
 
 	pt->device_id = strdup(value);
-	if (pt->device_id == NULL)
-		return -1;
-
 	pt->dump_by_type = DEVICE_ID;
 
 	return 0;
@@ -571,9 +568,11 @@ disable_primary_monitor(void)
 }
 
 static void
-signal_handler(int sig_num __rte_unused)
+signal_handler(int sig_num)
 {
-	quit_signal = 1;
+	if (sig_num == SIGINT) {
+		quit_signal = 1;
+	}
 }
 
 static inline int
@@ -973,11 +972,6 @@ enable_primary_monitor(void)
 int
 main(int argc, char **argv)
 {
-	struct sigaction action = {
-		.sa_flags = SA_RESTART,
-		.sa_handler = signal_handler,
-	};
-	struct sigaction origaction;
 	int diag;
 	int ret;
 	int i;
@@ -986,14 +980,8 @@ main(int argc, char **argv)
 	char mp_flag[] = "--proc-type=secondary";
 	char *argp[argc + 2];
 
-	/* catch ctrl-c so we can cleanup on exit */
-	sigemptyset(&action.sa_mask);
-	sigaction(SIGTERM, &action, NULL);
-	sigaction(SIGINT, &action, NULL);
-	sigaction(SIGPIPE, &action, NULL);
-	sigaction(SIGHUP, NULL, &origaction);
-	if (origaction.sa_handler == SIG_DFL)
-		sigaction(SIGHUP, &action, NULL);
+	/* catch ctrl-c so we can print on exit */
+	signal(SIGINT, signal_handler);
 
 	argp[0] = argv[0];
 	argp[1] = n_flag;

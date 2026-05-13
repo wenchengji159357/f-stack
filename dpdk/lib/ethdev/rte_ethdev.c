@@ -600,10 +600,9 @@ rte_eth_dev_owner_get(const uint16_t port_id, struct rte_eth_dev_owner *owner)
 	struct rte_eth_dev *ethdev;
 	int ret;
 
-	if (port_id >= RTE_MAX_ETHPORTS)
-		return -ENODEV;
-
+	RTE_ETH_VALID_PORTID_OR_ERR_RET(port_id, -ENODEV);
 	ethdev = &rte_eth_devices[port_id];
+
 	if (!eth_dev_is_allocated(ethdev)) {
 		RTE_ETHDEV_LOG(ERR, "Port ID %"PRIu16" is not allocated\n",
 			port_id);
@@ -636,15 +635,8 @@ int
 rte_eth_dev_socket_id(uint16_t port_id)
 {
 	int socket_id = SOCKET_ID_ANY;
-	struct rte_eth_dev *ethdev;
 
-	if (port_id >= RTE_MAX_ETHPORTS) {
-		rte_errno = EINVAL;
-		return socket_id;
-	}
-
-	ethdev = &rte_eth_devices[port_id];
-	if (!eth_dev_is_allocated(ethdev)) {
+	if (!rte_eth_dev_is_valid_port(port_id)) {
 		rte_errno = EINVAL;
 	} else {
 		socket_id = rte_eth_devices[port_id].data->numa_node;
@@ -732,7 +724,7 @@ rte_eth_dev_get_port_by_name(const char *name, uint16_t *port_id)
 	uint16_t pid;
 
 	if (name == NULL) {
-		RTE_ETHDEV_LOG(ERR, "Cannot get port ID from NULL name\n");
+		RTE_ETHDEV_LOG(ERR, "Cannot get port ID from NULL name");
 		return -EINVAL;
 	}
 
@@ -2402,41 +2394,41 @@ rte_eth_rx_hairpin_queue_setup(uint16_t port_id, uint16_t rx_queue_id,
 		nb_rx_desc = cap.max_nb_desc;
 	if (nb_rx_desc > cap.max_nb_desc) {
 		RTE_ETHDEV_LOG(ERR,
-			"Invalid value for nb_rx_desc(=%hu), should be: <= %hu\n",
+			"Invalid value for nb_rx_desc(=%hu), should be: <= %hu",
 			nb_rx_desc, cap.max_nb_desc);
 		return -EINVAL;
 	}
 	if (conf->peer_count > cap.max_rx_2_tx) {
 		RTE_ETHDEV_LOG(ERR,
-			"Invalid value for number of peers for Rx queue(=%u), should be: <= %hu\n",
+			"Invalid value for number of peers for Rx queue(=%u), should be: <= %hu",
 			conf->peer_count, cap.max_rx_2_tx);
 		return -EINVAL;
 	}
 	if (conf->use_locked_device_memory && !cap.rx_cap.locked_device_memory) {
 		RTE_ETHDEV_LOG(ERR,
-			"Attempt to use locked device memory for Rx queue, which is not supported\n");
+			"Attempt to use locked device memory for Rx queue, which is not supported");
 		return -EINVAL;
 	}
 	if (conf->use_rte_memory && !cap.rx_cap.rte_memory) {
 		RTE_ETHDEV_LOG(ERR,
-			"Attempt to use DPDK memory for Rx queue, which is not supported\n");
+			"Attempt to use DPDK memory for Rx queue, which is not supported");
 		return -EINVAL;
 	}
 	if (conf->use_locked_device_memory && conf->use_rte_memory) {
 		RTE_ETHDEV_LOG(ERR,
-			"Attempt to use mutually exclusive memory settings for Rx queue\n");
+			"Attempt to use mutually exclusive memory settings for Rx queue");
 		return -EINVAL;
 	}
 	if (conf->force_memory &&
 	    !conf->use_locked_device_memory &&
 	    !conf->use_rte_memory) {
 		RTE_ETHDEV_LOG(ERR,
-			"Attempt to force Rx queue memory settings, but none is set\n");
+			"Attempt to force Rx queue memory settings, but none is set");
 		return -EINVAL;
 	}
 	if (conf->peer_count == 0) {
 		RTE_ETHDEV_LOG(ERR,
-			"Invalid value for number of peers for Rx queue(=%u), should be: > 0\n",
+			"Invalid value for number of peers for Rx queue(=%u), should be: > 0",
 			conf->peer_count);
 		return -EINVAL;
 	}
@@ -2446,7 +2438,7 @@ rte_eth_rx_hairpin_queue_setup(uint16_t port_id, uint16_t rx_queue_id,
 			count++;
 	}
 	if (count > cap.max_nb_queues) {
-		RTE_ETHDEV_LOG(ERR, "To many Rx hairpin queues max is %d\n",
+		RTE_ETHDEV_LOG(ERR, "To many Rx hairpin queues max is %d",
 		cap.max_nb_queues);
 		return -EINVAL;
 	}
@@ -2605,41 +2597,41 @@ rte_eth_tx_hairpin_queue_setup(uint16_t port_id, uint16_t tx_queue_id,
 		nb_tx_desc = cap.max_nb_desc;
 	if (nb_tx_desc > cap.max_nb_desc) {
 		RTE_ETHDEV_LOG(ERR,
-			"Invalid value for nb_tx_desc(=%hu), should be: <= %hu\n",
+			"Invalid value for nb_tx_desc(=%hu), should be: <= %hu",
 			nb_tx_desc, cap.max_nb_desc);
 		return -EINVAL;
 	}
 	if (conf->peer_count > cap.max_tx_2_rx) {
 		RTE_ETHDEV_LOG(ERR,
-			"Invalid value for number of peers for Tx queue(=%u), should be: <= %hu\n",
+			"Invalid value for number of peers for Tx queue(=%u), should be: <= %hu",
 			conf->peer_count, cap.max_tx_2_rx);
 		return -EINVAL;
 	}
 	if (conf->use_locked_device_memory && !cap.tx_cap.locked_device_memory) {
 		RTE_ETHDEV_LOG(ERR,
-			"Attempt to use locked device memory for Tx queue, which is not supported\n");
+			"Attempt to use locked device memory for Tx queue, which is not supported");
 		return -EINVAL;
 	}
 	if (conf->use_rte_memory && !cap.tx_cap.rte_memory) {
 		RTE_ETHDEV_LOG(ERR,
-			"Attempt to use DPDK memory for Tx queue, which is not supported\n");
+			"Attempt to use DPDK memory for Tx queue, which is not supported");
 		return -EINVAL;
 	}
 	if (conf->use_locked_device_memory && conf->use_rte_memory) {
 		RTE_ETHDEV_LOG(ERR,
-			"Attempt to use mutually exclusive memory settings for Tx queue\n");
+			"Attempt to use mutually exclusive memory settings for Tx queue");
 		return -EINVAL;
 	}
 	if (conf->force_memory &&
 	    !conf->use_locked_device_memory &&
 	    !conf->use_rte_memory) {
 		RTE_ETHDEV_LOG(ERR,
-			"Attempt to force Tx queue memory settings, but none is set\n");
+			"Attempt to force Tx queue memory settings, but none is set");
 		return -EINVAL;
 	}
 	if (conf->peer_count == 0) {
 		RTE_ETHDEV_LOG(ERR,
-			"Invalid value for number of peers for Tx queue(=%u), should be: > 0\n",
+			"Invalid value for number of peers for Tx queue(=%u), should be: > 0",
 			conf->peer_count);
 		return -EINVAL;
 	}
@@ -2649,7 +2641,7 @@ rte_eth_tx_hairpin_queue_setup(uint16_t port_id, uint16_t tx_queue_id,
 			count++;
 	}
 	if (count > cap.max_nb_queues) {
-		RTE_ETHDEV_LOG(ERR, "To many Tx hairpin queues max is %d\n",
+		RTE_ETHDEV_LOG(ERR, "To many Tx hairpin queues max is %d",
 		cap.max_nb_queues);
 		return -EINVAL;
 	}
@@ -2831,12 +2823,6 @@ rte_eth_tx_done_cleanup(uint16_t port_id, uint16_t queue_id, uint32_t free_cnt)
 	RTE_ETH_VALID_PORTID_OR_ERR_RET(port_id, -ENODEV);
 	dev = &rte_eth_devices[port_id];
 
-#ifdef RTE_ETHDEV_DEBUG_TX
-	ret = eth_dev_validate_tx_queue(dev, queue_id);
-	if (ret != 0)
-		return ret;
-#endif
-
 	if (*dev->dev_ops->tx_done_cleanup == NULL)
 		return -ENOTSUP;
 
@@ -2891,9 +2877,10 @@ rte_eth_promiscuous_disable(uint16_t port_id)
 	if (*dev->dev_ops->promiscuous_disable == NULL)
 		return -ENOTSUP;
 
+	dev->data->promiscuous = 0;
 	diag = (*dev->dev_ops->promiscuous_disable)(dev);
-	if (diag == 0)
-		dev->data->promiscuous = 0;
+	if (diag != 0)
+		dev->data->promiscuous = 1;
 
 	diag = eth_err(port_id, diag);
 
@@ -2955,10 +2942,10 @@ rte_eth_allmulticast_disable(uint16_t port_id)
 
 	if (*dev->dev_ops->allmulticast_disable == NULL)
 		return -ENOTSUP;
-
+	dev->data->all_multicast = 0;
 	diag = (*dev->dev_ops->allmulticast_disable)(dev);
-	if (diag == 0)
-		dev->data->all_multicast = 0;
+	if (diag != 0)
+		dev->data->all_multicast = 1;
 
 	diag = eth_err(port_id, diag);
 
@@ -6569,19 +6556,13 @@ static void
 eth_dev_adjust_nb_desc(uint16_t *nb_desc,
 		const struct rte_eth_desc_lim *desc_lim)
 {
-	/* Upcast to uint32 to avoid potential overflow with RTE_ALIGN_CEIL(). */
-	uint32_t nb_desc_32 = (uint32_t)*nb_desc;
-
 	if (desc_lim->nb_align != 0)
-		nb_desc_32 = RTE_ALIGN_CEIL(nb_desc_32, desc_lim->nb_align);
+		*nb_desc = RTE_ALIGN_CEIL(*nb_desc, desc_lim->nb_align);
 
 	if (desc_lim->nb_max != 0)
-		nb_desc_32 = RTE_MIN(nb_desc_32, desc_lim->nb_max);
+		*nb_desc = RTE_MIN(*nb_desc, desc_lim->nb_max);
 
-	nb_desc_32 = RTE_MAX(nb_desc_32, desc_lim->nb_min);
-
-	/* Assign clipped u32 back to u16. */
-	*nb_desc = (uint16_t)nb_desc_32;
+	*nb_desc = RTE_MAX(*nb_desc, desc_lim->nb_min);
 }
 
 int
@@ -6735,7 +6716,7 @@ rte_eth_ip_reassembly_capability_get(uint16_t port_id,
 	}
 
 	if (reassembly_capa == NULL) {
-		RTE_ETHDEV_LOG(ERR, "Cannot get reassembly capability to NULL\n");
+		RTE_ETHDEV_LOG(ERR, "Cannot get reassembly capability to NULL");
 		return -EINVAL;
 	}
 
@@ -6771,7 +6752,7 @@ rte_eth_ip_reassembly_conf_get(uint16_t port_id,
 	}
 
 	if (conf == NULL) {
-		RTE_ETHDEV_LOG(ERR, "Cannot get reassembly info to NULL\n");
+		RTE_ETHDEV_LOG(ERR, "Cannot get reassembly info to NULL");
 		return -EINVAL;
 	}
 
@@ -6799,7 +6780,7 @@ rte_eth_ip_reassembly_conf_set(uint16_t port_id,
 	if (dev->data->dev_configured == 0) {
 		RTE_ETHDEV_LOG(ERR,
 			"Device with port_id=%u is not configured.\n"
-			"Cannot set IP reassembly configuration\n",
+			"Cannot set IP reassembly configuration",
 			port_id);
 		return -EINVAL;
 	}

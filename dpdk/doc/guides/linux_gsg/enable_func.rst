@@ -85,7 +85,8 @@ need to be adjusted in order to ensure normal DPDK operation:
 The above limits can usually be adjusted by editing
 ``/etc/security/limits.conf`` file, and rebooting.
 
-See :ref:`Hugepage Mapping <hugepage_mapping>` section to learn how these limits affect EAL.
+See `Hugepage Mapping <hugepage_mapping>`_
+section to learn how these limits affect EAL.
 
 Device Control
 ~~~~~~~~~~~~~~

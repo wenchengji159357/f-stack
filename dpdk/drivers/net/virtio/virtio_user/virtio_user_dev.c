@@ -20,7 +20,6 @@
 #include <rte_malloc.h>
 
 #include "vhost.h"
-#include "virtio.h"
 #include "virtio_user_dev.h"
 #include "../virtio_ethdev.h"
 
@@ -32,61 +31,6 @@ const char * const virtio_user_backend_strings[] = {
 	[VIRTIO_USER_BACKEND_VHOST_KERNEL] = "VHOST_NET",
 	[VIRTIO_USER_BACKEND_VHOST_VDPA] = "VHOST_VDPA",
 };
-
-static int
-virtio_user_uninit_notify_queue(struct virtio_user_dev *dev, uint32_t queue_sel)
-{
-	if (dev->kickfds[queue_sel] >= 0) {
-		close(dev->kickfds[queue_sel]);
-		dev->kickfds[queue_sel] = -1;
-	}
-
-	if (dev->callfds[queue_sel] >= 0) {
-		close(dev->callfds[queue_sel]);
-		dev->callfds[queue_sel] = -1;
-	}
-
-	return 0;
-}
-
-static int
-virtio_user_init_notify_queue(struct virtio_user_dev *dev, uint32_t queue_sel)
-{
-	/* May use invalid flag, but some backend uses kickfd and
-	 * callfd as criteria to judge if dev is alive. so finally we
-	 * use real event_fd.
-	 */
-	dev->callfds[queue_sel] = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
-	if (dev->callfds[queue_sel] < 0) {
-		PMD_DRV_LOG(ERR, "(%s) Failed to setup callfd for queue %u: %s",
-				dev->path, queue_sel, strerror(errno));
-		return -1;
-	}
-	dev->kickfds[queue_sel] = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
-	if (dev->kickfds[queue_sel] < 0) {
-		PMD_DRV_LOG(ERR, "(%s) Failed to setup kickfd for queue %u: %s",
-				dev->path, queue_sel, strerror(errno));
-		return -1;
-	}
-
-	return 0;
-}
-
-static int
-virtio_user_destroy_queue(struct virtio_user_dev *dev, uint32_t queue_sel)
-{
-	struct vhost_vring_state state;
-	int ret;
-
-	state.index = queue_sel;
-	ret = dev->ops->get_vring_base(dev, &state);
-	if (ret < 0) {
-		PMD_DRV_LOG(ERR, "(%s) Failed to destroy queue %u", dev->path, queue_sel);
-		return -1;
-	}
-
-	return 0;
-}
 
 static int
 virtio_user_create_queue(struct virtio_user_dev *dev, uint32_t queue_sel)
@@ -184,22 +128,6 @@ err:
 }
 
 static int
-virtio_user_foreach_queue(struct virtio_user_dev *dev, int (*fn)(struct virtio_user_dev *, uint32_t))
-{
-	uint32_t i, nr_vq;
-
-	nr_vq = dev->max_queue_pairs * 2;
-	if (dev->hw_cvq)
-		nr_vq++;
-
-	for (i = 0; i < nr_vq; i++)
-		if (fn(dev, i) < 0)
-			return -1;
-
-	return 0;
-}
-
-static int
 virtio_user_queue_setup(struct virtio_user_dev *dev,
 			int (*fn)(struct virtio_user_dev *, uint32_t))
 {
@@ -287,12 +215,6 @@ virtio_user_start_device(struct virtio_user_dev *dev)
 	if (ret < 0)
 		goto error;
 
-	if (dev->scvq) {
-		ret = dev->ops->cvq_enable(dev, 1);
-		if (ret < 0)
-			goto error;
-	}
-
 	dev->started = true;
 
 	pthread_mutex_unlock(&dev->mutex);
@@ -311,6 +233,7 @@ error:
 
 int virtio_user_stop_device(struct virtio_user_dev *dev)
 {
+	struct vhost_vring_state state;
 	uint32_t i;
 	int ret;
 
@@ -324,15 +247,15 @@ int virtio_user_stop_device(struct virtio_user_dev *dev)
 			goto err;
 	}
 
-	if (dev->scvq) {
-		ret = dev->ops->cvq_enable(dev, 0);
-		if (ret < 0)
-			goto err;
-	}
-
 	/* Stop the backend. */
-	if (virtio_user_foreach_queue(dev, virtio_user_destroy_queue) < 0)
-		goto err;
+	for (i = 0; i < dev->max_queue_pairs * 2; ++i) {
+		state.index = i;
+		ret = dev->ops->get_vring_base(dev, &state);
+		if (ret < 0) {
+			PMD_DRV_LOG(ERR, "(%s) get_vring_base failed, index=%u", dev->path, i);
+			goto err;
+		}
+	}
 
 	dev->started = false;
 
@@ -463,13 +386,46 @@ out:
 static int
 virtio_user_dev_init_notify(struct virtio_user_dev *dev)
 {
+	uint32_t i, j, nr_vq;
+	int callfd;
+	int kickfd;
 
-	if (virtio_user_foreach_queue(dev, virtio_user_init_notify_queue) < 0)
-		goto err;
+	nr_vq = dev->max_queue_pairs * 2;
+	if (dev->hw_cvq)
+		nr_vq++;
+
+	for (i = 0; i < nr_vq; i++) {
+		/* May use invalid flag, but some backend uses kickfd and
+		 * callfd as criteria to judge if dev is alive. so finally we
+		 * use real event_fd.
+		 */
+		callfd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+		if (callfd < 0) {
+			PMD_DRV_LOG(ERR, "(%s) callfd error, %s", dev->path, strerror(errno));
+			goto err;
+		}
+		kickfd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+		if (kickfd < 0) {
+			close(callfd);
+			PMD_DRV_LOG(ERR, "(%s) kickfd error, %s", dev->path, strerror(errno));
+			goto err;
+		}
+		dev->callfds[i] = callfd;
+		dev->kickfds[i] = kickfd;
+	}
 
 	return 0;
 err:
-	virtio_user_foreach_queue(dev, virtio_user_uninit_notify_queue);
+	for (j = 0; j < i; j++) {
+		if (dev->kickfds[j] >= 0) {
+			close(dev->kickfds[j]);
+			dev->kickfds[j] = -1;
+		}
+		if (dev->callfds[j] >= 0) {
+			close(dev->callfds[j]);
+			dev->callfds[j] = -1;
+		}
+	}
 
 	return -1;
 }
@@ -477,8 +433,18 @@ err:
 static void
 virtio_user_dev_uninit_notify(struct virtio_user_dev *dev)
 {
-	virtio_user_foreach_queue(dev, virtio_user_uninit_notify_queue);
+	uint32_t i;
 
+	for (i = 0; i < dev->max_queue_pairs * 2; ++i) {
+		if (dev->kickfds[i] >= 0) {
+			close(dev->kickfds[i]);
+			dev->kickfds[i] = -1;
+		}
+		if (dev->callfds[i] >= 0) {
+			close(dev->callfds[i]);
+			dev->callfds[i] = -1;
+		}
+	}
 }
 
 static int
@@ -609,7 +575,7 @@ virtio_user_alloc_vrings(struct virtio_user_dev *dev)
 	bool packed_ring = !!(dev->device_features & (1ull << VIRTIO_F_RING_PACKED));
 
 	nr_vrings = dev->max_queue_pairs * 2;
-	if (dev->frontend_features & (1ull << VIRTIO_NET_F_CTRL_VQ))
+	if (dev->device_features & (1ull << VIRTIO_NET_F_MQ))
 		nr_vrings++;
 
 	dev->callfds = rte_zmalloc("virtio_user_dev", nr_vrings * sizeof(*dev->callfds), 0);
@@ -759,7 +725,7 @@ virtio_user_dev_init(struct virtio_user_dev *dev, char *path, uint16_t queues,
 	if (virtio_user_dev_init_max_queue_pairs(dev, queues))
 		dev->unsupported_features |= (1ull << VIRTIO_NET_F_MQ);
 
-	if (dev->max_queue_pairs > 1 || dev->hw_cvq)
+	if (dev->max_queue_pairs > 1)
 		cq = 1;
 
 	if (!mrg_rxbuf)
@@ -777,9 +743,8 @@ virtio_user_dev_init(struct virtio_user_dev *dev, char *path, uint16_t queues,
 		dev->unsupported_features |= (1ull << VIRTIO_NET_F_MAC);
 
 	if (cq) {
-		/* Except for vDPA, the device does not really need to know
-		 * anything about CQ, so if necessary, we just claim to support
-		 * control queue.
+		/* device does not really need to know anything about CQ,
+		 * so if necessary, we just claim to support CQ
 		 */
 		dev->frontend_features |= (1ull << VIRTIO_NET_F_CTRL_VQ);
 	} else {
@@ -878,6 +843,9 @@ virtio_user_handle_mq(struct virtio_user_dev *dev, uint16_t q_pairs)
 		ret |= dev->ops->enable_qp(dev, i, 1);
 	for (i = q_pairs; i < dev->max_queue_pairs; ++i)
 		ret |= dev->ops->enable_qp(dev, i, 0);
+
+	if (dev->scvq)
+		ret |= dev->ops->cvq_enable(dev, 1);
 
 	dev->queue_pairs = q_pairs;
 
@@ -1088,7 +1056,7 @@ virtio_user_dev_create_shadow_cvq(struct virtio_user_dev *dev, struct virtqueue 
 	scvq = virtqueue_alloc(&dev->hw, vq->vq_queue_index, vq->vq_nentries,
 			VTNET_CQ, SOCKET_ID_ANY, name);
 	if (!scvq) {
-		PMD_INIT_LOG(ERR, "(%s) Failed to alloc shadow control vq", dev->path);
+		PMD_INIT_LOG(ERR, "(%s) Failed to alloc shadow control vq\n", dev->path);
 		return -ENOMEM;
 	}
 

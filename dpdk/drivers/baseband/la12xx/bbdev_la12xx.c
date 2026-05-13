@@ -201,7 +201,7 @@ la12xx_e200_queue_setup(struct rte_bbdev *dev,
 		q_priv->la12xx_core_id = LA12XX_LDPC_DEC_CORE;
 		break;
 	default:
-		rte_bbdev_log(ERR, "Unsupported op type");
+		rte_bbdev_log(ERR, "Unsupported op type\n");
 		return -1;
 	}
 
@@ -269,7 +269,7 @@ la12xx_e200_queue_setup(struct rte_bbdev *dev,
 		ch->feca_blk_id = rte_cpu_to_be_32(priv->num_ldpc_dec_queues++);
 		break;
 	default:
-		rte_bbdev_log(ERR, "Not supported op type");
+		rte_bbdev_log(ERR, "Not supported op type\n");
 		return -1;
 	}
 	ch->op_type = rte_cpu_to_be_32(q_priv->op_type);
@@ -789,7 +789,6 @@ setup_la12xx_dev(struct rte_bbdev *dev)
 		ipc_priv->hugepg_start.size = hp->len;
 
 		rte_free(hp);
-		hp = NULL;
 	}
 
 	dev_ipc = open_ipc_dev(priv->modem_id);
@@ -1084,9 +1083,6 @@ la12xx_bbdev_remove(struct rte_vdev_device *vdev)
 	const char *name;
 
 	PMD_INIT_FUNC_TRACE();
-
-	if (rte_eal_process_type() != RTE_PROC_PRIMARY)
-		return 0;
 
 	if (vdev == NULL)
 		return -EINVAL;

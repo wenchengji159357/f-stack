@@ -121,14 +121,13 @@ else
             cpu_instruction_set = 'generic'
         endif
     endif
-    if platform == 'native'
-        if cpu_instruction_set == 'auto'
-            cpu_instruction_set = 'native'
-        endif
-    endif
 endif
 
-if platform == 'generic'
+if platform == 'native'
+    if cpu_instruction_set == 'auto'
+        cpu_instruction_set = 'native'
+    endif
+elif platform == 'generic'
     if cpu_instruction_set == 'auto'
         cpu_instruction_set = 'generic'
     endif
@@ -189,9 +188,6 @@ dpdk_conf.set('RTE_ARCH_32', cc.sizeof('void *') == 4)
 
 if not is_windows
     add_project_link_arguments('-Wl,--no-as-needed', language: 'c')
-    if cc.has_link_argument('-Wl,--undefined-version')
-        add_project_link_arguments('-Wl,--undefined-version', language: 'c')
-    endif
 endif
 
 # use pthreads if available for the platform
@@ -303,7 +299,7 @@ endif
 # enable extra warnings and disable any unwanted warnings
 # -Wall is added by default at warning level 1, and -Wextra
 # at warning level 2 (DPDK default)
-global_cflags = [
+warning_flags = [
         # additional warnings in alphabetical order
         '-Wcast-qual',
         '-Wdeprecated',
@@ -324,25 +320,22 @@ global_cflags = [
         '-Wno-address-of-packed-member',
         '-Wno-packed-not-aligned',
         '-Wno-missing-field-initializers',
-
-        # guarantee that all non-initialized parts of structure/union are zero
-        '-fzero-init-padding-bits=all',
 ]
 if cc.get_id() == 'gcc' and cc.version().version_compare('>=10.0')
 # FIXME: Bugzilla 396
-    global_cflags += '-Wno-zero-length-bounds'
+    warning_flags += '-Wno-zero-length-bounds'
 endif
 if not dpdk_conf.get('RTE_ARCH_64')
 # for 32-bit, don't warn about casting a 32-bit pointer to 64-bit int - it's fine!!
-    global_cflags += '-Wno-pointer-to-int-cast'
+    warning_flags += '-Wno-pointer-to-int-cast'
 endif
 if cc.get_id() == 'intel'
     warning_ids = [181, 188, 2203, 2279, 2557, 3179, 3656]
     foreach i:warning_ids
-        global_cflags += '-diag-disable=@0@'.format(i)
+        warning_flags += '-diag-disable=@0@'.format(i)
     endforeach
 endif
-foreach arg: global_cflags
+foreach arg: warning_flags
     if cc.has_argument(arg)
         add_project_arguments(arg, language: 'c')
     endif

@@ -50,13 +50,8 @@ enum {
 };
 
 struct rte_flow_action_handle {
-	union {
-		uint64_t val64;
-		struct {
-			int indirect_type;
-			uint32_t counter_id;
-		};
-	};
+	int indirect_type;
+	uint32_t counter_id;
 };
 
 union hns3_filter_conf {

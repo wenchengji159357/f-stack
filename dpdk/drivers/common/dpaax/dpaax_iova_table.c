@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: BSD-3-Clause
- * Copyright 2018-2023 NXP
+ * Copyright 2018 NXP
  */
 
 #include <rte_memory.h>
@@ -139,12 +139,10 @@ read_memory_node(unsigned int *count)
 	}
 
 	DPAAX_DEBUG("Device-tree memory node data:");
-
-	while (j > 0) {
-		--j;
+	do {
 		DPAAX_DEBUG("    %08" PRIx64 " %08zu",
 			    nodes[j].addr, nodes[j].len);
-	}
+	} while (--j);
 
 cleanup:
 	close(fd);
@@ -257,7 +255,10 @@ dpaax_iova_table_populate(void)
 void
 dpaax_iova_table_depopulate(void)
 {
-	rte_free(dpaax_iova_table_p);
+	if (dpaax_iova_table_p == NULL)
+		return;
+
+	rte_free(dpaax_iova_table_p->entries);
 	dpaax_iova_table_p = NULL;
 
 	DPAAX_DEBUG("IOVA Table cleaned");

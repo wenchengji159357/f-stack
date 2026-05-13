@@ -965,9 +965,19 @@ mlx5_devx_cmd_query_hca_attr(void *ctx,
 			max_geneve_tlv_options);
 	attr->max_geneve_tlv_option_data_len = MLX5_GET(cmd_hca_cap, hcattr,
 			max_geneve_tlv_option_data_len);
-	attr->query_match_sample_info = MLX5_GET(cmd_hca_cap, hcattr,
-						 query_match_sample_info);
 	attr->qos.sup = MLX5_GET(cmd_hca_cap, hcattr, qos);
+	attr->qos.flow_meter_aso_sup = !!(MLX5_GET64(cmd_hca_cap, hcattr,
+					 general_obj_types) &
+			      MLX5_GENERAL_OBJ_TYPES_CAP_FLOW_METER_ASO);
+	attr->vdpa.valid = !!(MLX5_GET64(cmd_hca_cap, hcattr,
+					 general_obj_types) &
+			      MLX5_GENERAL_OBJ_TYPES_CAP_VIRTQ_NET_Q);
+	attr->vdpa.queue_counters_valid = !!(MLX5_GET64(cmd_hca_cap, hcattr,
+							general_obj_types) &
+				  MLX5_GENERAL_OBJ_TYPES_CAP_VIRTIO_Q_COUNTERS);
+	attr->parse_graph_flex_node = !!(MLX5_GET64(cmd_hca_cap, hcattr,
+					 general_obj_types) &
+			      MLX5_GENERAL_OBJ_TYPES_CAP_PARSE_GRAPH_FLEX_NODE);
 	attr->wqe_index_ignore = MLX5_GET(cmd_hca_cap, hcattr,
 					  wqe_index_ignore_cap);
 	attr->cross_channel = MLX5_GET(cmd_hca_cap, hcattr, cd);
@@ -991,9 +1001,6 @@ mlx5_devx_cmd_query_hca_attr(void *ctx,
 	/* Read the general_obj_types bitmap and extract the relevant bits. */
 	general_obj_types_supported = MLX5_GET64(cmd_hca_cap, hcattr,
 						 general_obj_types);
-	attr->qos.flow_meter_aso_sup =
-			!!(general_obj_types_supported &
-			   MLX5_GENERAL_OBJ_TYPES_CAP_FLOW_METER_ASO);
 	attr->vdpa.valid = !!(general_obj_types_supported &
 			      MLX5_GENERAL_OBJ_TYPES_CAP_VIRTQ_NET_Q);
 	attr->vdpa.queue_counters_valid =
@@ -1019,7 +1026,6 @@ mlx5_devx_cmd_query_hca_attr(void *ctx,
 	attr->log_max_qp = MLX5_GET(cmd_hca_cap, hcattr, log_max_qp);
 	attr->log_max_cq_sz = MLX5_GET(cmd_hca_cap, hcattr, log_max_cq_sz);
 	attr->log_max_qp_sz = MLX5_GET(cmd_hca_cap, hcattr, log_max_qp_sz);
-	attr->log_max_wq_sz = MLX5_GET(cmd_hca_cap, hcattr, log_max_wq_sz);
 	attr->log_max_mrw_sz = MLX5_GET(cmd_hca_cap, hcattr, log_max_mrw_sz);
 	attr->log_max_pd = MLX5_GET(cmd_hca_cap, hcattr, log_max_pd);
 	attr->log_max_srq = MLX5_GET(cmd_hca_cap, hcattr, log_max_srq);
@@ -1068,7 +1074,8 @@ mlx5_devx_cmd_query_hca_attr(void *ctx,
 		MLX5_GET(cmd_hca_cap, hcattr, umr_modify_entity_size_disabled);
 	attr->wait_on_time = MLX5_GET(cmd_hca_cap, hcattr, wait_on_time);
 	attr->crypto = MLX5_GET(cmd_hca_cap, hcattr, crypto);
-	attr->ct_offload = !!(general_obj_types_supported &
+	attr->ct_offload = !!(MLX5_GET64(cmd_hca_cap, hcattr,
+					 general_obj_types) &
 			      MLX5_GENERAL_OBJ_TYPES_CAP_CONN_TRACK_OFFLOAD);
 	attr->rq_delay_drop = MLX5_GET(cmd_hca_cap, hcattr, rq_delay_drop);
 	attr->nic_flow_table = MLX5_GET(cmd_hca_cap, hcattr, nic_flow_table);
@@ -1097,8 +1104,8 @@ mlx5_devx_cmd_query_hca_attr(void *ctx,
 			(ctx, &attr->flex);
 		if (rc)
 			return -1;
-		attr->flex.query_match_sample_info =
-						attr->query_match_sample_info;
+		attr->flex.query_match_sample_info = MLX5_GET(cmd_hca_cap, hcattr,
+							      query_match_sample_info);
 	}
 	if (attr->crypto) {
 		attr->aes_xts = MLX5_GET(cmd_hca_cap, hcattr, aes_xts) ||
@@ -1807,7 +1814,7 @@ mlx5_devx_cmd_create_rqt(void *ctx,
 	uint32_t out[MLX5_ST_SZ_DW(create_rqt_out)] = {0};
 	void *rqt_ctx;
 	struct mlx5_devx_obj *rqt = NULL;
-	unsigned int i;
+	int i;
 
 	in = mlx5_malloc(MLX5_MEM_ZERO, inlen, 0, SOCKET_ID_ANY);
 	if (!in) {
@@ -1860,7 +1867,7 @@ mlx5_devx_cmd_modify_rqt(struct mlx5_devx_obj *rqt,
 	uint32_t out[MLX5_ST_SZ_DW(modify_rqt_out)] = {0};
 	uint32_t *in = mlx5_malloc(MLX5_MEM_ZERO, inlen, 0, SOCKET_ID_ANY);
 	void *rqt_ctx;
-	unsigned int i;
+	int i;
 	int ret;
 
 	if (!in) {
@@ -1873,6 +1880,7 @@ mlx5_devx_cmd_modify_rqt(struct mlx5_devx_obj *rqt,
 	MLX5_SET64(modify_rqt_in, in, modify_bitmask, 0x1);
 	rqt_ctx = MLX5_ADDR_OF(modify_rqt_in, in, rqt_context);
 	MLX5_SET(rqtc, rqt_ctx, list_q_type, rqt_attr->rq_type);
+	MLX5_SET(rqtc, rqt_ctx, rqt_max_size, rqt_attr->rqt_max_size);
 	MLX5_SET(rqtc, rqt_ctx, rqt_actual_size, rqt_attr->rqt_actual_size);
 	for (i = 0; i < rqt_attr->rqt_actual_size; i++)
 		MLX5_SET(rqtc, rqt_ctx, rq_num[i], rqt_attr->rq_list[i]);

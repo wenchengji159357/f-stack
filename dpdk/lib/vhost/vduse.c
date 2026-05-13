@@ -36,7 +36,6 @@ static struct vduse vduse = {
 		.fd = { [0 ... MAX_FDS - 1] = {-1, NULL, NULL, NULL, 0} },
 		.fd_mutex = PTHREAD_MUTEX_INITIALIZER,
 		.fd_pooling_mutex = PTHREAD_MUTEX_INITIALIZER,
-		.sync_mutex = PTHREAD_MUTEX_INITIALIZER,
 		.num = 0
 	},
 };
@@ -197,7 +196,6 @@ vduse_vring_setup(struct virtio_net *dev, unsigned int index)
 				vq->size * sizeof(struct batch_copy_elem),
 				RTE_CACHE_LINE_SIZE, 0);
 
-	rte_rwlock_write_lock(&vq->access_lock);
 	vhost_user_iotlb_rd_lock(vq);
 	if (vring_translate(dev, vq))
 		VHOST_LOG_CONFIG(dev->ifname, ERR, "Failed to translate vring %d addresses\n",
@@ -208,7 +206,6 @@ vduse_vring_setup(struct virtio_net *dev, unsigned int index)
 				"Failed to disable guest notifications on vring %d\n",
 				index);
 	vhost_user_iotlb_rd_unlock(vq);
-	rte_rwlock_write_unlock(&vq->access_lock);
 
 	vq_efd.index = index;
 	vq_efd.fd = vq->kickfd;
@@ -262,9 +259,7 @@ vduse_vring_cleanup(struct virtio_net *dev, unsigned int index)
 	close(vq->kickfd);
 	vq->kickfd = VIRTIO_UNINITIALIZED_EVENTFD;
 
-	rte_rwlock_write_lock(&vq->access_lock);
 	vring_invalidate(dev, vq);
-	rte_rwlock_write_unlock(&vq->access_lock);
 
 	rte_free(vq->batch_copy_elems);
 	vq->batch_copy_elems = NULL;
@@ -317,8 +312,7 @@ vduse_device_start(struct virtio_net *dev)
 
 	dev->flags |= VIRTIO_DEV_READY;
 
-	if (!dev->notify_ops->new_device ||
-		dev->notify_ops->new_device(dev->vid) == 0)
+	if (dev->notify_ops->new_device(dev->vid) == 0)
 		dev->flags |= VIRTIO_DEV_RUNNING;
 
 	for (i = 0; i < dev->nr_vring; i++) {
@@ -620,7 +614,7 @@ vduse_device_destroy(const char *path)
 	vduse_device_stop(dev);
 
 	fdset_del(&vduse.fdset, dev->vduse_dev_fd);
-	fdset_pipe_notify_sync(&vduse.fdset);
+	fdset_pipe_notify(&vduse.fdset);
 
 	if (dev->vduse_dev_fd >= 0) {
 		close(dev->vduse_dev_fd);

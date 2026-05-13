@@ -215,8 +215,8 @@ mlx5_rxq_start(struct rte_eth_dev *dev)
 		/* Should not release Rx queues but return immediately. */
 		return -rte_errno;
 	}
-	DRV_LOG(DEBUG, "Port %u max work queue size is %d.",
-		dev->data->port_id, mlx5_dev_get_max_wq_size(priv->sh));
+	DRV_LOG(DEBUG, "Port %u dev_cap.max_qp_wr is %d.",
+		dev->data->port_id, priv->sh->dev_cap.max_qp_wr);
 	DRV_LOG(DEBUG, "Port %u dev_cap.max_sge is %d.",
 		dev->data->port_id, priv->sh->dev_cap.max_sge);
 	for (i = 0; i != priv->rxqs_n; ++i) {
@@ -1498,9 +1498,7 @@ mlx5_traffic_enable_hws(struct rte_eth_dev *dev)
 		if (!txq)
 			continue;
 		queue = mlx5_txq_get_sqn(txq);
-		if ((priv->representor || priv->master) &&
-		    config->dv_esw_en &&
-		    config->fdb_def_rule) {
+		if ((priv->representor || priv->master) && config->dv_esw_en) {
 			if (mlx5_flow_hw_esw_create_sq_miss_flow(dev, queue, false)) {
 				mlx5_txq_release(dev, i);
 				goto error;
@@ -1524,11 +1522,11 @@ mlx5_traffic_enable_hws(struct rte_eth_dev *dev)
 	} else {
 		DRV_LOG(INFO, "port %u FDB default rule is disabled", dev->data->port_id);
 	}
-	if (!priv->sh->config.lacp_by_user && priv->pf_bond >= 0 && priv->master)
-		if (mlx5_flow_hw_lacp_rx_flow(dev))
-			goto error;
 	if (priv->isolated)
 		return 0;
+	if (!priv->sh->config.lacp_by_user && priv->pf_bond >= 0)
+		if (mlx5_flow_hw_lacp_rx_flow(dev))
+			goto error;
 	if (dev->data->promiscuous)
 		flags |= MLX5_CTRL_PROMISCUOUS;
 	if (dev->data->all_multicast)
@@ -1634,14 +1632,14 @@ mlx5_traffic_enable(struct rte_eth_dev *dev)
 		DRV_LOG(INFO, "port %u FDB default rule is disabled",
 			dev->data->port_id);
 	}
-	if (!priv->sh->config.lacp_by_user && priv->pf_bond >= 0 && priv->master) {
+	if (!priv->sh->config.lacp_by_user && priv->pf_bond >= 0) {
 		ret = mlx5_flow_lacp_miss(dev);
 		if (ret)
 			DRV_LOG(INFO, "port %u LACP rule cannot be created - "
 				"forward LACP to kernel.", dev->data->port_id);
 		else
-			DRV_LOG(INFO, "LACP traffic will be missed in port %u.",
-				dev->data->port_id);
+			DRV_LOG(INFO, "LACP traffic will be missed in port %u."
+				, dev->data->port_id);
 	}
 	if (priv->isolated)
 		return 0;
@@ -1705,7 +1703,7 @@ mlx5_traffic_enable(struct rte_eth_dev *dev)
 	for (i = 0; i != MLX5_MAX_MAC_ADDRESSES; ++i) {
 		struct rte_ether_addr *mac = &dev->data->mac_addrs[i];
 
-		if (!memcmp(mac, &cmp, sizeof(*mac)) || rte_is_multicast_ether_addr(mac))
+		if (!memcmp(mac, &cmp, sizeof(*mac)))
 			continue;
 		memcpy(&unicast.hdr.dst_addr.addr_bytes,
 		       mac->addr_bytes,

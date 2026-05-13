@@ -80,7 +80,6 @@ enum mlx5dr_action_aso_ct_flags {
 };
 
 enum mlx5dr_match_template_flags {
-	MLX5DR_MATCH_TEMPLATE_FLAG_NONE = 0,
 	/* Allow relaxed matching by skipping derived dependent match fields. */
 	MLX5DR_MATCH_TEMPLATE_FLAG_RELAXED_MATCH = 1,
 };
@@ -96,10 +95,8 @@ struct mlx5dr_context_attr {
 	uint16_t queues;
 	uint16_t queue_size;
 	size_t initial_log_ste_memory; /* Currently not in use */
-	/* Optional PD used for allocating resources */
+	/* Optional PD used for allocating res ources */
 	struct ibv_pd *pd;
-	/* Optional the STC array size for that context */
-	size_t initial_log_stc_memory;
 	/* Optional other ctx for resources allocation, all objects will be created on it */
 	struct ibv_context *shared_ibv_ctx;
 };

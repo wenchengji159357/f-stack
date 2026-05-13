@@ -54,10 +54,6 @@
 #define HNS3_SPECIAL_PORT_SW_CKSUM_MODE         0
 #define HNS3_SPECIAL_PORT_HW_CKSUM_MODE         1
 
-#define HNS3_STRIP_CRC_PTYPE_NONE         0
-#define HNS3_STRIP_CRC_PTYPE_TCP          1
-#define HNS3_STRIP_CRC_PTYPE_IP           2
-
 #define HNS3_UC_MACADDR_NUM		128
 #define HNS3_VF_UC_MACADDR_NUM		48
 #define HNS3_MC_MACADDR_NUM		128
@@ -489,9 +485,6 @@ struct hns3_queue_intr {
 #define HNS3_PKTS_DROP_STATS_MODE1		0
 #define HNS3_PKTS_DROP_STATS_MODE2		1
 
-#define HNS3_RX_DMA_ADDR_ALIGN_128	128
-#define HNS3_RX_DMA_ADDR_ALIGN_64	64
-
 struct hns3_hw {
 	struct rte_eth_dev_data *data;
 	void *io_base;
@@ -559,11 +552,6 @@ struct hns3_hw {
 	 * direction.
 	 */
 	uint8_t min_tx_pkt_len;
-	/*
-	 * The required alignment of the DMA address of the RX buffer.
-	 * See HNS3_RX_DMA_ADDR_ALIGN_XXX for available values.
-	 */
-	uint16_t rx_dma_addr_align;
 
 	struct hns3_queue_intr intr;
 	/*
@@ -658,25 +646,6 @@ struct hns3_hw {
 	 *     directly calculate the checksum of these UDP packets.
 	 */
 	uint8_t udp_cksum_mode;
-
-	/*
-	 * When KEEP_CRC offload is enabled, the CRC data of some type packets
-	 * whose length is less than or equal to HNS3_KEEP_CRC_OK_MIN_PKT_LEN
-	 * is still be stripped on some network engine. So here has to use this
-	 * field to distinguish the difference between different network engines.
-	 * value range:
-	 *  - HNS3_STRIP_CRC_PTYPE_TCP
-	 *     This value for HIP08 network engine.
-	 *     Indicates that only the IP-TCP packet type is stripped.
-	 *
-	 *  - HNS3_STRIP_CRC_PTYPE_IP
-	 *     This value for HIP09 network engine.
-	 *     Indicates that all IP packet types are stripped.
-	 *
-	 *  - HNS3_STRIP_CRC_PTYPE_NONE
-	 *     Indicates that all packet types are not stripped.
-	 */
-	uint8_t strip_crc_ptype;
 
 	struct hns3_port_base_vlan_config port_base_vlan_cfg;
 

@@ -16,6 +16,9 @@
 
 #define DPAA2_QDMA_PREFETCH "prefetch"
 
+/* Dynamic log type identifier */
+int dpaa2_qdma_logtype;
+
 uint32_t dpaa2_coherent_no_alloc_cache;
 uint32_t dpaa2_coherent_alloc_cache;
 
@@ -578,7 +581,7 @@ dpdmai_dev_dequeue_multijob_prefetch(struct qdma_virt_queue *qdma_vq,
 		ret = dpaa2_affine_qbman_swp();
 		if (ret) {
 			DPAA2_QDMA_ERR(
-				"Failed to allocate IO portal, tid: %d",
+				"Failed to allocate IO portal, tid: %d\n",
 				rte_gettid());
 			return 0;
 		}
@@ -608,7 +611,7 @@ dpdmai_dev_dequeue_multijob_prefetch(struct qdma_virt_queue *qdma_vq,
 		while (1) {
 			if (qbman_swp_pull(swp, &pulldesc)) {
 				DPAA2_QDMA_DP_WARN(
-					"VDQ command not issued.QBMAN busy");
+					"VDQ command not issued.QBMAN busy\n");
 					/* Portal was busy, try again */
 				continue;
 			}
@@ -684,7 +687,7 @@ dpdmai_dev_dequeue_multijob_prefetch(struct qdma_virt_queue *qdma_vq,
 	while (1) {
 		if (qbman_swp_pull(swp, &pulldesc)) {
 			DPAA2_QDMA_DP_WARN(
-				"VDQ command is not issued. QBMAN is busy (2)");
+				"VDQ command is not issued. QBMAN is busy (2)\n");
 			continue;
 		}
 		break;
@@ -728,7 +731,7 @@ dpdmai_dev_dequeue_multijob_no_prefetch(struct qdma_virt_queue *qdma_vq,
 		ret = dpaa2_affine_qbman_swp();
 		if (ret) {
 			DPAA2_QDMA_ERR(
-				"Failed to allocate IO portal, tid: %d",
+				"Failed to allocate IO portal, tid: %d\n",
 				rte_gettid());
 			return 0;
 		}
@@ -825,7 +828,7 @@ dpdmai_dev_submit_multi(struct qdma_virt_queue *qdma_vq,
 		ret = dpaa2_affine_qbman_swp();
 		if (ret) {
 			DPAA2_QDMA_ERR(
-				"Failed to allocate IO portal, tid: %d",
+				"Failed to allocate IO portal, tid: %d\n",
 				rte_gettid());
 			return 0;
 		}
@@ -1696,4 +1699,4 @@ static struct rte_dpaa2_driver rte_dpaa2_qdma_pmd = {
 RTE_PMD_REGISTER_DPAA2(dpaa2_qdma, rte_dpaa2_qdma_pmd);
 RTE_PMD_REGISTER_PARAM_STRING(dpaa2_qdma,
 	"no_prefetch=<int> ");
-RTE_LOG_REGISTER_DEFAULT(dpaa2_qdma_logtype, INFO);
+RTE_LOG_REGISTER_DEFAULT(dpaa_qdma2_logtype, INFO);

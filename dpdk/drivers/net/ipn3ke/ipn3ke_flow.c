@@ -993,7 +993,7 @@ ipn3ke_flow_hw_update(struct ipn3ke_hw *hw,
 	uint32_t time_out = MHL_COMMAND_TIME_COUNT;
 	uint32_t i;
 
-	IPN3KE_AFU_PMD_DEBUG("IPN3KE flow dump start");
+	IPN3KE_AFU_PMD_DEBUG("IPN3KE flow dump start\n");
 
 	pdata = (uint32_t *)flow->rule.key;
 	IPN3KE_AFU_PMD_DEBUG(" - key   :");
@@ -1003,6 +1003,7 @@ ipn3ke_flow_hw_update(struct ipn3ke_hw *hw,
 
 	for (i = 0; i < 4; i++)
 		IPN3KE_AFU_PMD_DEBUG(" %02x", ipn3ke_swap32(pdata[3 - i]));
+	IPN3KE_AFU_PMD_DEBUG("\n");
 
 	pdata = (uint32_t *)flow->rule.result;
 	IPN3KE_AFU_PMD_DEBUG(" - result:");
@@ -1012,7 +1013,7 @@ ipn3ke_flow_hw_update(struct ipn3ke_hw *hw,
 
 	for (i = 0; i < 1; i++)
 		IPN3KE_AFU_PMD_DEBUG(" %02x", pdata[i]);
-	IPN3KE_AFU_PMD_DEBUG("IPN3KE flow dump end");
+	IPN3KE_AFU_PMD_DEBUG("IPN3KE flow dump end\n");
 
 	pdata = (uint32_t *)flow->rule.key;
 
@@ -1253,7 +1254,7 @@ int ipn3ke_flow_init(void *dev)
 				IPN3KE_CLF_RX_TEST,
 				0,
 				0x1);
-	IPN3KE_AFU_PMD_DEBUG("IPN3KE_CLF_RX_TEST: %x", data);
+	IPN3KE_AFU_PMD_DEBUG("IPN3KE_CLF_RX_TEST: %x\n", data);
 
 	/* configure base mac address */
 	IPN3KE_MASK_WRITE_REG(hw,
@@ -1267,7 +1268,7 @@ int ipn3ke_flow_init(void *dev)
 				IPN3KE_CLF_BASE_DST_MAC_ADDR_HI,
 				0,
 				0xFFFF);
-	IPN3KE_AFU_PMD_DEBUG("IPN3KE_CLF_BASE_DST_MAC_ADDR_HI: %x", data);
+	IPN3KE_AFU_PMD_DEBUG("IPN3KE_CLF_BASE_DST_MAC_ADDR_HI: %x\n", data);
 
 	IPN3KE_MASK_WRITE_REG(hw,
 			IPN3KE_CLF_BASE_DST_MAC_ADDR_LOW,
@@ -1280,7 +1281,7 @@ int ipn3ke_flow_init(void *dev)
 				IPN3KE_CLF_BASE_DST_MAC_ADDR_LOW,
 				0,
 				0xFFFFFFFF);
-	IPN3KE_AFU_PMD_DEBUG("IPN3KE_CLF_BASE_DST_MAC_ADDR_LOW: %x", data);
+	IPN3KE_AFU_PMD_DEBUG("IPN3KE_CLF_BASE_DST_MAC_ADDR_LOW: %x\n", data);
 
 
 	/* configure hash lookup rules enable */
@@ -1295,7 +1296,7 @@ int ipn3ke_flow_init(void *dev)
 				IPN3KE_CLF_LKUP_ENABLE,
 				0,
 				0xFF);
-	IPN3KE_AFU_PMD_DEBUG("IPN3KE_CLF_LKUP_ENABLE: %x", data);
+	IPN3KE_AFU_PMD_DEBUG("IPN3KE_CLF_LKUP_ENABLE: %x\n", data);
 
 
 	/* configure rx parse config, settings associated with VxLAN */
@@ -1310,7 +1311,7 @@ int ipn3ke_flow_init(void *dev)
 				IPN3KE_CLF_RX_PARSE_CFG,
 				0,
 				0x3FFFF);
-	IPN3KE_AFU_PMD_DEBUG("IPN3KE_CLF_RX_PARSE_CFG: %x", data);
+	IPN3KE_AFU_PMD_DEBUG("IPN3KE_CLF_RX_PARSE_CFG: %x\n", data);
 
 
 	/* configure QinQ S-Tag */
@@ -1325,7 +1326,7 @@ int ipn3ke_flow_init(void *dev)
 				IPN3KE_CLF_QINQ_STAG,
 				0,
 				0xFFFF);
-	IPN3KE_AFU_PMD_DEBUG("IPN3KE_CLF_QINQ_STAG: %x", data);
+	IPN3KE_AFU_PMD_DEBUG("IPN3KE_CLF_QINQ_STAG: %x\n", data);
 
 
 	/* configure gen ctrl */
@@ -1340,7 +1341,7 @@ int ipn3ke_flow_init(void *dev)
 				IPN3KE_CLF_MHL_GEN_CTRL,
 				0,
 				0x1F);
-	IPN3KE_AFU_PMD_DEBUG("IPN3KE_CLF_MHL_GEN_CTRL: %x", data);
+	IPN3KE_AFU_PMD_DEBUG("IPN3KE_CLF_MHL_GEN_CTRL: %x\n", data);
 
 
 	/* clear monitoring register */
@@ -1355,7 +1356,7 @@ int ipn3ke_flow_init(void *dev)
 				IPN3KE_CLF_MHL_MON_0,
 				0,
 				0xFFFFFFFF);
-	IPN3KE_AFU_PMD_DEBUG("IPN3KE_CLF_MHL_MON_0: %x", data);
+	IPN3KE_AFU_PMD_DEBUG("IPN3KE_CLF_MHL_MON_0: %x\n", data);
 
 
 	ipn3ke_flow_hw_flush(hw);
@@ -1365,7 +1366,7 @@ int ipn3ke_flow_init(void *dev)
 						IPN3KE_CLF_EM_NUM,
 						0,
 						0xFFFFFFFF);
-	IPN3KE_AFU_PMD_DEBUG("IPN3KE_CLF_EN_NUM: %x", hw->flow_max_entries);
+	IPN3KE_AFU_PMD_DEBUG("IPN3KE_CLF_EN_NUM: %x\n", hw->flow_max_entries);
 	hw->flow_num_entries = 0;
 
 	return 0;

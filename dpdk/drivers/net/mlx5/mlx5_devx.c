@@ -48,8 +48,6 @@ mlx5_rxq_obj_modify_rq_vlan_strip(struct mlx5_rxq_priv *rxq, int on)
 	rq_attr.state = MLX5_RQC_STATE_RDY;
 	rq_attr.vsd = (on ? 0 : 1);
 	rq_attr.modify_bitmask = MLX5_MODIFY_RQ_IN_MODIFY_BITMASK_VSD;
-	if (rxq->ctrl->is_hairpin)
-		return mlx5_devx_cmd_modify_rq(rxq->ctrl->obj->rq, &rq_attr);
 	return mlx5_devx_cmd_modify_rq(rxq->devx_rq.rq, &rq_attr);
 }
 
@@ -594,8 +592,7 @@ mlx5_rxq_devx_obj_new(struct mlx5_rxq_priv *rxq)
 		DRV_LOG(ERR, "Failed to create CQ.");
 		goto error;
 	}
-	if (!rxq_data->shared || !rxq_ctrl->started)
-		rxq_data->delay_drop = priv->config.std_delay_drop;
+	rxq_data->delay_drop = priv->config.std_delay_drop;
 	/* Create RQ using DevX API. */
 	ret = mlx5_rxq_create_devx_rq_resources(rxq);
 	if (ret) {
@@ -617,12 +614,7 @@ mlx5_rxq_devx_obj_new(struct mlx5_rxq_priv *rxq)
 				(uint32_t *)(uintptr_t)tmpl->devx_rmp.wq.db_rec;
 	}
 	if (!rxq_ctrl->started) {
-		if (mlx5_rxq_initialize(rxq_data)) {
-			DRV_LOG(ERR, "Port %u Rx queue %u RQ initialization failure.",
-			priv->dev_data->port_id, rxq->idx);
-			rte_errno = ENOMEM;
-			goto error;
-		}
+		mlx5_rxq_initialize(rxq_data);
 		rxq_ctrl->wqn = rxq->devx_rq.rq->id;
 	}
 	priv->dev_data->rx_queue_state[rxq->idx] = RTE_ETH_QUEUE_STATE_STARTED;
@@ -1534,7 +1526,7 @@ mlx5_txq_devx_obj_new(struct rte_eth_dev *dev, uint16_t idx)
 	wqe_size = RTE_ALIGN(wqe_size, MLX5_WQE_SIZE) / MLX5_WQE_SIZE;
 	/* Create Send Queue object with DevX. */
 	wqe_n = RTE_MIN((1UL << txq_data->elts_n) * wqe_size,
-			(uint32_t)mlx5_dev_get_max_wq_size(priv->sh));
+			(uint32_t)priv->sh->dev_cap.max_qp_wr);
 	log_desc_n = log2above(wqe_n);
 	ret = mlx5_txq_create_devx_sq_resources(dev, idx, log_desc_n);
 	if (ret) {

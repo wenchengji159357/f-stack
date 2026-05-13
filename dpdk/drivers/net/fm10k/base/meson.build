@@ -10,7 +10,19 @@ sources = [
         'fm10k_vf.c',
 ]
 
+error_cflags = ['-Wno-unused-parameter', '-Wno-unused-value',
+    '-Wno-strict-aliasing', '-Wno-format-extra-args',
+    '-Wno-unused-variable',
+    '-Wno-implicit-fallthrough'
+]
+c_args = cflags
+foreach flag: error_cflags
+    if cc.has_argument(flag)
+        c_args += flag
+    endif
+endforeach
+
 base_lib = static_library('fm10k_base', sources,
     dependencies: static_rte_eal,
-    c_args: cflags)
+    c_args: c_args)
 base_objs = base_lib.extract_all_objects(recursive: true)

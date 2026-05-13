@@ -169,11 +169,7 @@ container_to_json(const struct rte_tel_data *d, char *out_buf, size_t buf_len)
 		d->type != TEL_ARRAY_INT && d->type != TEL_ARRAY_STRING)
 		return snprintf(out_buf, buf_len, "null");
 
-	if (d->type == TEL_DICT)
-		used = rte_tel_json_empty_obj(out_buf, buf_len, 0);
-	else
-		used = rte_tel_json_empty_array(out_buf, buf_len, 0);
-
+	used = rte_tel_json_empty_array(out_buf, buf_len, 0);
 	if (d->type == TEL_ARRAY_UINT)
 		for (i = 0; i < d->data_len; i++)
 			used = rte_tel_json_add_array_uint(out_buf,
@@ -381,8 +377,8 @@ client_handler(void *sock_id)
 			"{\"version\":\"%s\",\"pid\":%d,\"max_output_len\":%d}",
 			telemetry_version, getpid(), MAX_OUTPUT_LEN);
 	if (write(s, info_str, strlen(info_str)) < 0) {
-		TMTY_LOG(DEBUG, "Socket write base info to client failed\n");
-		goto exit;
+		close(s);
+		return NULL;
 	}
 
 	/* receive data is not null terminated */
@@ -407,7 +403,6 @@ client_handler(void *sock_id)
 
 		bytes = read(s, buffer, sizeof(buffer) - 1);
 	}
-exit:
 	close(s);
 	rte_atomic_fetch_sub_explicit(&v2_clients, 1, rte_memory_order_relaxed);
 	return NULL;

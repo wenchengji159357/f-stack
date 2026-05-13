@@ -656,7 +656,7 @@ handle_dev_dump(const char *cmd __rte_unused,
 	if (!rte_rawdev_pmd_is_valid_dev(dev_id))
 		return -EINVAL;
 
-	buf = calloc(RTE_TEL_MAX_SINGLE_STRING_LEN, sizeof(char));
+	buf = calloc(sizeof(char), RTE_TEL_MAX_SINGLE_STRING_LEN);
 	if (buf == NULL)
 		return -ENOMEM;
 

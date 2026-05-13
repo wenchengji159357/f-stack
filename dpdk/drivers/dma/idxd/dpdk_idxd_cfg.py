@@ -104,10 +104,8 @@ def configure_dsa(dsa_id, args):
                  "priority": 1,
                  "max_batch_size": 1024,
                  "size": int(max_work_queues_size / nb_queues)}
-        wq_dir = SysfsDir(os.path.join(dsa_dir.path, f"wq{dsa_id}.{q}"))
-        if os.path.exists(os.path.join(wq_dir.path, f"driver_name")):
-            wqcfg.update({"driver_name": "user"})
         wqcfg.update(parse_wq_opts(args.wq_option))
+        wq_dir = SysfsDir(os.path.join(dsa_dir.path, f"wq{dsa_id}.{q}"))
         wq_dir.write_values(wqcfg)
 
     # enable device and then queues

@@ -2166,11 +2166,11 @@ main(int argc, char **argv)
 
 	if (mem_info) {
 		meminfo_display();
-		goto cleanup;
+		return 0;
 	}
 
 	if (eventdev_xstats() > 0)
-		goto cleanup;
+		return 0;
 
 	nb_ports = rte_eth_dev_count_avail();
 	if (nb_ports == 0)
@@ -2251,7 +2251,6 @@ main(int argc, char **argv)
 	RTE_ETH_FOREACH_DEV(i)
 		rte_eth_dev_close(i);
 
-cleanup:
 	ret = rte_eal_cleanup();
 	if (ret)
 		printf("Error from rte_eal_cleanup(), %d\n", ret);

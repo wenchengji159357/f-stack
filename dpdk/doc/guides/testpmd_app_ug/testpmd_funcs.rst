@@ -2033,7 +2033,7 @@ port config - queue ring size
 
 Configure a rx/tx queue ring size::
 
-   testpmd> port config (port_id) (rxq|txq) (queue_id) ring_size (value)
+   testpmd> port (port_id) (rxq|txq) (queue_id) ring_size (value)
 
 Only take effect after command that (re-)start the port or command that setup specific queue.
 
@@ -2142,7 +2142,7 @@ Set the DCB mode for an individual port::
 
    testpmd> port config (port_id) dcb vt (on|off) (traffic_class) pfc (on|off)
 
-The traffic class could be 2~8.
+The traffic class should be 4 or 8.
 
 port config - Burst
 ~~~~~~~~~~~~~~~~~~~
@@ -2910,6 +2910,14 @@ for port 0 and queue 0::
 
    testpmd> set port cman config 0 0 obj queue mode red 10 100 1
 
+Filter Functions
+----------------
+
+This section details the available filter functions that are available.
+
+Note these functions interface the deprecated legacy filtering framework,
+superseded by *rte_flow*. See `Flow rules management`_.
+
 .. _testpmd_rte_flow:
 
 Flow rules management
@@ -2918,6 +2926,10 @@ Flow rules management
 Control of the generic flow API (*rte_flow*) is fully exposed through the
 ``flow`` command (configuration, validation, creation, destruction, queries
 and operation modes).
+
+Considering *rte_flow* overlaps with all `Filter Functions`_, using both
+features simultaneously may cause undefined side-effects and is therefore
+not recommended.
 
 ``flow`` syntax
 ~~~~~~~~~~~~~~~

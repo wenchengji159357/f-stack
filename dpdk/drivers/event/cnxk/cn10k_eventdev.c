@@ -782,53 +782,12 @@ cn10k_sso_set_priv_mem(const struct rte_eventdev *event_dev, void *lookup_mem)
 	}
 }
 
-static void
-eventdev_fops_update(struct rte_eventdev *event_dev)
-{
-	struct rte_event_fp_ops *fp_op =
-		rte_event_fp_ops + event_dev->data->dev_id;
-
-	fp_op->dequeue = event_dev->dequeue;
-	fp_op->dequeue_burst = event_dev->dequeue_burst;
-}
-
-static void
-cn10k_sso_tstamp_hdl_update(uint16_t port_id, uint16_t flags, bool ptp_en)
-{
-	struct rte_eth_dev *dev = &rte_eth_devices[port_id];
-	struct cnxk_eth_dev *cnxk_eth_dev = dev->data->dev_private;
-	struct rte_eventdev *event_dev = cnxk_eth_dev->evdev_priv;
-	struct cnxk_sso_evdev *evdev = cnxk_sso_pmd_priv(event_dev);
-
-	evdev->rx_offloads |= flags;
-	if (ptp_en)
-		evdev->tstamp[port_id] = &cnxk_eth_dev->tstamp;
-	else
-		evdev->tstamp[port_id] = NULL;
-	cn10k_sso_fp_fns_set((struct rte_eventdev *)(uintptr_t)event_dev);
-	eventdev_fops_update(event_dev);
-}
-
-static void
-cn10k_sso_rx_offload_cb(uint16_t port_id, uint64_t flags)
-{
-	struct rte_eth_dev *dev = &rte_eth_devices[port_id];
-	struct cnxk_eth_dev *cnxk_eth_dev = dev->data->dev_private;
-	struct rte_eventdev *event_dev = cnxk_eth_dev->evdev_priv;
-	struct cnxk_sso_evdev *evdev = cnxk_sso_pmd_priv(event_dev);
-
-	evdev->rx_offloads |= flags;
-	cn10k_sso_fp_fns_set((struct rte_eventdev *)(uintptr_t)event_dev);
-	eventdev_fops_update(event_dev);
-}
-
 static int
 cn10k_sso_rx_adapter_queue_add(
 	const struct rte_eventdev *event_dev, const struct rte_eth_dev *eth_dev,
 	int32_t rx_queue_id,
 	const struct rte_event_eth_rx_adapter_queue_conf *queue_conf)
 {
-	struct cnxk_eth_dev *cnxk_eth_dev = eth_dev->data->dev_private;
 	struct cnxk_sso_evdev *dev = cnxk_sso_pmd_priv(event_dev);
 	struct roc_sso_hwgrp_stash stash;
 	struct cn10k_eth_rxq *rxq;
@@ -843,10 +802,6 @@ cn10k_sso_rx_adapter_queue_add(
 					   queue_conf);
 	if (rc)
 		return -EINVAL;
-
-	cnxk_eth_dev->cnxk_sso_ptp_tstamp_cb = cn10k_sso_tstamp_hdl_update;
-	cnxk_eth_dev->evdev_priv = (struct rte_eventdev *)(uintptr_t)event_dev;
-
 	rxq = eth_dev->data->rx_queues[0];
 	lookup_mem = rxq->lookup_mem;
 	cn10k_sso_set_priv_mem(event_dev, lookup_mem);
@@ -1129,7 +1084,6 @@ cn10k_sso_init(struct rte_eventdev *event_dev)
 		return rc;
 	}
 
-	cnxk_ethdev_rx_offload_cb_register(cn10k_sso_rx_offload_cb);
 	event_dev->dev_ops = &cn10k_sso_dev_ops;
 	/* For secondary processes, the primary has done all the work */
 	if (rte_eal_process_type() != RTE_PROC_PRIMARY) {

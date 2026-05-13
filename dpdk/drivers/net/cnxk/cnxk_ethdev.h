@@ -424,13 +424,6 @@ struct cnxk_eth_dev {
 	/* MCS device */
 	struct cnxk_mcs_dev *mcs_dev;
 	struct cnxk_macsec_sess_list mcs_list;
-
-	/* SSO event dev */
-	void *evdev_priv;
-
-	/* SSO event dev ptp  */
-	void (*cnxk_sso_ptp_tstamp_cb)
-	     (uint16_t port_id, uint16_t flags, bool ptp_en);
 };
 
 struct cnxk_eth_rxq_sp {
@@ -640,10 +633,6 @@ int cnxk_nix_lookup_mem_metapool_set(struct cnxk_eth_dev *dev);
 int cnxk_nix_lookup_mem_metapool_clear(struct cnxk_eth_dev *dev);
 __rte_internal
 int cnxk_nix_inb_mode_set(struct cnxk_eth_dev *dev, bool use_inl_dev);
-typedef void (*cnxk_ethdev_rx_offload_cb_t)(uint16_t port_id, uint64_t flags);
-__rte_internal
-void cnxk_ethdev_rx_offload_cb_register(cnxk_ethdev_rx_offload_cb_t cb);
-
 struct cnxk_eth_sec_sess *cnxk_eth_sec_sess_get_by_spi(struct cnxk_eth_dev *dev,
 						       uint32_t spi, bool inb);
 struct cnxk_eth_sec_sess *
