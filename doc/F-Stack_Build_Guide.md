@@ -14,12 +14,24 @@ $ apt-get install git gcc openssl libssl-dev linux-headers-$(uname -r) bc libnum
 $ mkdir /data/f-stack
 $ git clone https://github.com/F-Stack/f-stack.git /data/f-stack
 
+# udpate git submodule for compile spdk igb_uio
+$ git submodule update --init --recursive
+
+# compile igb_uio
+$ cd /data/f-stack/dpdk-kmods/linux/igb_uio
+$ make
+
 # compile dpdk
 $ cd /data/f-stack/dpdk
 # igb_uio is about 5% more efficient than vfio-pci, so continue using it.
-$ meson -Denable_kmods=true build
-$ ninja -C build
+$ meson build
 $ ninja -C build install
+
+# compile spdk
+$ cd /data/f-stack/spdk
+$ ./scripts/pkgdep.sh
+$ ./configure --disable-tests --disable-unit-tests --disable-examples --disable-apps --with-dpdk=/usr/local/lib/x86_64-linux-gnu/
+$ make
 
 # Upgrade pkg-config while version < 0.28
 $ cd /data
@@ -61,9 +73,18 @@ $ make
 
 ## Compile dpdk in virtual machine
 
-- f-stack/dpdk/kernel/linux/igb_uio/igb_uio.c line 274:
+- f-stack/dpdk-kmods/linux/igb_uio/igb_uio.c line 274:
 ```
 
 -   if (pci_intx_mask_supported(udev->pdev)) {
 +   if (true || pci_intx_mask_supported(udev->pdev)) {
+```
+
+## Compile SPDK examples
+# You need to update the DPDK version to support rte_argparse, or delete it at line 38 in spdk/lib/env_dpdk/env.mk.
+
+```
+-  DPDK_LIB_LIST = rte_eal rte_kvargs rte_log rte_telemetry rte_argparse
++  DPDK_LIB_LIST = rte_eal rte_kvargs rte_log rte_telemetry
+
 ```

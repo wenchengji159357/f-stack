@@ -19,9 +19,22 @@ jobs:
       run: |
         apt-get -qq update
         apt-get -qq install -y libssl-dev ninja-build
+        git config --global --add safe.directory `pwd`
+        git submodule update --init --recursive
+    - name: Compile igb_uio
+      run: |
+        make -C /lib/modules/6.8.0-64-generic/build M=`pwd`/dpdk-kmods/linux/igb_uio
+    - name: Compile dpdk
+      run: |
         cd dpdk
-        meson setup build -Dkernel_dir=/lib/modules/6.8.0-64-generic/build
+        meson setup build
         ninja -C build install
+    - name: Compile spdk
+      run: |
+        cd spdk
+        ./scripts/pkgdep.sh
+        ./configure --disable-tests --disable-unit-tests --disable-examples --disable-apps --with-dpdk=/usr/local/lib/x86_64-linux-gnu/
+        make
     - name: Compile f-stack
       run: |
         cd lib/
