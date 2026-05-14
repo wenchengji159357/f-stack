@@ -2,3 +2,6 @@
 	path = spdk
 	url = https://github.com/spdk/spdk.git
 	branch = v26.01.x
+[submodule "dpdk-kmods"]
+	path = dpdk-kmods
+	url = http://dpdk.org/git/dpdk-kmods
