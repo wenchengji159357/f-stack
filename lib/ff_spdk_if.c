@@ -133,7 +133,7 @@ static void
 nvme_notify(struct nvme_consumer *cons,
         struct spdk_nvme_ns *ns)
 {
-    void *ctrlr_cookie;
+    void *ctrlr_cookie = NULL;
 
     if (cons->ctrlr_fn != NULL)
         ctrlr_cookie = (*cons->ctrlr_fn)(spdk_nvme_ns_get_ctrlr((struct spdk_nvme_ns *)ns));

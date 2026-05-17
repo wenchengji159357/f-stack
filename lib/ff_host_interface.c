@@ -173,7 +173,8 @@ ff_clock_gettime(int id, int64_t *sec, long *nsec)
     }
 
     rv = clock_gettime(host_id, &ts);
-    assert(0 == rv);
+    if (rv != 0)
+        panic("clock_gettime failed\n");
 
     *sec = (int64_t)ts.tv_sec;
     *nsec = (long)ts.tv_nsec;
@@ -206,7 +207,8 @@ void
 ff_update_current_ts()
 {
     int rv = clock_gettime(CLOCK_REALTIME, &current_ts);
-    assert(rv == 0);
+    if (rv != 0)
+        panic("clock_gettime failed\n");
 }
 
 void
@@ -329,4 +331,3 @@ void ff_os_errno(int error)
     }
 
 }
-

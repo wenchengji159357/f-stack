@@ -1050,7 +1050,7 @@ ini_parse_handler(void* user, const char* section, const char* name,
 static int
 dpdk_args_setup(struct ff_config *cfg)
 {
-    int n = 0, i;
+    int n = 0, i = 0;
 #ifdef FF_FILESYSTEM
 	int len = 0;
 	ff_spdk_opts.opts_size = sizeof(ff_spdk_opts);
