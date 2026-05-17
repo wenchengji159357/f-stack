@@ -905,7 +905,9 @@ retry:
 				while (object == NULL || m->object != object) {
 					if (object != NULL)
 						VM_OBJECT_WUNLOCK(object);
+					#pragma GCC diagnostic ignored "-Wcast-qual"
 					object = atomic_load_ptr(&m->object);
+					#pragma GCC diagnostic error "-Wcast-qual"
 					if (object == NULL)
 						goto retry;
 					VM_OBJECT_WLOCK(object);

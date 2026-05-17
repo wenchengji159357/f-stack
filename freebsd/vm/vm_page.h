@@ -198,6 +198,10 @@
  *	queue entries.  The page queue operation flags must be set using atomic
  *	RWM operations.
  */
+#ifdef FF_ZEROCOPY
+#define VM_PAGE_BITS_ALL 0xffu
+typedef uint8_t vm_page_bits_t;
+#endif
 
 #if PAGE_SIZE == 4096
 #define VM_PAGE_BITS_ALL 0xffu
@@ -221,6 +225,12 @@ typedef union vm_page_astate {
 	};
 	uint32_t _bits;
 } vm_page_astate_t;
+
+#ifdef FSTACK
+struct vm_phys_addr {
+	void *addr;
+};
+#endif
 
 struct vm_page {
 	union {

@@ -255,7 +255,9 @@ int	fdcopy_remapped(struct filedesc *fdp, const int *fds, size_t nfds,
 void	fdinstall_remapped(struct thread *td, struct filedesc *fdp);
 void	fdunshare(struct thread *td);
 void	fdescfree(struct thread *td);
+#ifdef FSTACK
 void	fdescfree_adapt_use(struct thread *td);
+#endif
 void	fdescfree_remapped(struct filedesc *fdp);
 int	fdlastfile(struct filedesc *fdp);
 int	fdlastfile_single(struct filedesc *fdp);

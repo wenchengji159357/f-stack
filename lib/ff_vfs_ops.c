@@ -43,7 +43,21 @@
 #include <sys/uio.h>
 #include <sys/file.h>
 #include <sys/capsicum.h>
+#ifdef FF_FILESYSTEM
+#include <sys/vnode.h>
+#include <sys/mount.h>
+#include <sys/buf.h>
+#include <sys/vmem.h>
+#include <sys/smp.h>
+#include <vm/vm_extern.h>
+#include <vm/vm_kern.h>
+#include <sys/bio.h>
+#include <sys/conf.h>
+#include "ff_spdk_if.h"
+#endif
 
+
+#ifndef FF_FILESYSTEM
 __read_frequently smr_t vfs_smr;
 
 void
@@ -111,5 +125,47 @@ NDINIT_ALL(struct nameidata *ndp, u_long op, u_long flags, enum uio_seg segflg,
     filecaps_init(&ndp->ni_filecaps);
     ndp->ni_cnd.cn_thread = td;
 }
+#endif
+
+#else
+
+void swapoff_all(void);
+// vfs_bio.c
+
+
+int
+kern_sigprocmask(struct thread *td, int how, sigset_t *set, sigset_t *oset,
+	int flags);
+
+int
+kern_sigprocmask(struct thread *td, int how, sigset_t *set, sigset_t *oset,
+	int flags)
+{
+	return 0;
+}
+
+void
+swapoff_all(void)
+{
+
+}
+
+int vmem_alloc(vmem_t *vm, vmem_size_t size, int flags, vmem_addr_t *addrp)
+{
+	*addrp = (vmem_addr_t)ff_vmem_alloc(size);
+	return 0;
+}
+
+void vmem_free(vmem_t *vm, vmem_addr_t addr, vmem_size_t size)
+{
+	ff_vmem_free((void *)addr);
+}
+
+void
+vmem_set_reclaim(vmem_t *vm, vmem_reclaim_t *reclaimfn)
+{
+
+}
+
 #endif
 

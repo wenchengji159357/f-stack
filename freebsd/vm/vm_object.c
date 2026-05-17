@@ -111,14 +111,14 @@ __FBSDID("$FreeBSD$");
 static int old_msync;
 SYSCTL_INT(_vm, OID_AUTO, old_msync, CTLFLAG_RW, &old_msync, 0,
     "Use old (insecure) msync behavior");
-
+#ifndef FSTACK
 static int	vm_object_page_collect_flush(vm_object_t object, vm_page_t p,
 		    int pagerflags, int flags, boolean_t *allclean,
 		    boolean_t *eio);
 static boolean_t vm_object_page_remove_write(vm_page_t p, int flags,
 		    boolean_t *allclean);
 static void	vm_object_backing_remove(vm_object_t object);
-
+#endif
 /*
  *	Virtual memory objects maintain the actual data
  *	associated with allocated virtual memory.  A given
@@ -265,7 +265,9 @@ _vm_object_allocate(objtype_t type, vm_pindex_t size, u_short flags,
 #if VM_NRESERVLEVEL > 0
 	LIST_INIT(&object->rvq);
 #endif
+#ifndef FSTACK
 	umtx_shm_object_init(object);
+#endif
 }
 
 /*
@@ -286,7 +288,9 @@ vm_object_init(void)
 	kernel_object->flags |= OBJ_COLORED;
 	kernel_object->pg_color = (u_short)atop(VM_MIN_KERNEL_ADDRESS);
 #endif
+#ifndef FSTACK
 	kernel_object->un_pager.phys.ops = &default_phys_pg_ops;
+#endif
 
 	/*
 	 * The lock portion of struct vm_object must be type stable due
@@ -373,6 +377,7 @@ vm_object_pip_wakeupn(vm_object_t object, short i)
 		blockcount_release(&object->paging_in_progress, i);
 }
 
+#ifndef FSTACK
 /*
  * Atomically drop the object lock and wait for pip to drain.  This protects
  * from sleep/wakeup races due to identity changes.  The lock is not re-acquired
@@ -385,6 +390,7 @@ vm_object_pip_sleep(vm_object_t object, const char *waitid)
 	(void)blockcount_sleep(&object->paging_in_progress, &object->lock,
 	    waitid, PVM | PDROP);
 }
+#endif
 
 void
 vm_object_pip_wait(vm_object_t object, const char *waitid)
@@ -529,7 +535,7 @@ vm_object_reference_locked(vm_object_t object)
 	KASSERT((object->flags & OBJ_DEAD) == 0,
 	    ("vm_object_reference: Referenced dead object."));
 }
-
+#ifndef FSTACK
 /*
  * Handle deallocating an object of type OBJT_VNODE.
  */
@@ -688,7 +694,7 @@ vm_object_deallocate(vm_object_t object)
 		object = temp;
 	}
 }
-
+#endif
 /*
  *	vm_object_destroy removes the object from the global object list
  *      and frees the space for the object.
@@ -701,7 +707,9 @@ vm_object_destroy(vm_object_t object)
 	 * Release the allocation charge.
 	 */
 	if (object->cred != NULL) {
+#ifndef FSTACK
 		swap_release_by_cred(object->charge, object->cred);
+#endif
 		object->charge = 0;
 		crfree(object->cred);
 		object->cred = NULL;
@@ -712,7 +720,34 @@ vm_object_destroy(vm_object_t object)
 	 */
 	uma_zfree(obj_zone, object);
 }
+#ifdef FSTACK
+void
+vm_object_deallocate(vm_object_t object)
+{
 
+}
+
+void
+vm_object_page_remove(vm_object_t object, vm_pindex_t start, vm_pindex_t end,
+					  int options)
+{
+
+}
+
+boolean_t
+vm_object_page_clean(vm_object_t object, vm_ooffset_t start, vm_ooffset_t end,
+	int flags)
+{
+	return (TRUE);
+}
+
+void
+vm_object_terminate(vm_object_t object)
+{
+
+}
+
+#else
 static void
 vm_object_backing_remove_locked(vm_object_t object)
 {
@@ -2329,6 +2364,7 @@ vm_object_coalesce(vm_object_t prev_object, vm_ooffset_t prev_offset,
 	VM_OBJECT_WUNLOCK(prev_object);
 	return (TRUE);
 }
+#endif
 
 void
 vm_object_set_writeable_dirty(vm_object_t object)
@@ -2341,6 +2377,7 @@ vm_object_set_writeable_dirty(vm_object_t object)
 	atomic_add_int(&object->generation, 1);
 }
 
+#ifndef FSTACK
 /*
  *	vm_object_unwire:
  *
@@ -2423,7 +2460,7 @@ next_page:
 		tobject = t1object;
 	}
 }
-
+#endif
 /*
  * Return the vnode for the given object, or NULL if none exists.
  * For tmpfs objects, the function may return NULL if there is
@@ -2447,7 +2484,7 @@ vm_object_vnode(vm_object_t object)
 	}
 	return (vp);
 }
-
+#ifndef FSTACK
 /*
  * Busy the vm object.  This prevents new pages belonging to the object from
  * becoming busy.  Existing pages persist as busy.  Callers are responsible
@@ -2470,7 +2507,7 @@ vm_object_unbusy(vm_object_t obj)
 
 	blockcount_release(&obj->busy, 1);
 }
-
+#endif
 void
 vm_object_busy_wait(vm_object_t obj, const char *wmesg)
 {

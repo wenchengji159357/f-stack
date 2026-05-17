@@ -43,6 +43,7 @@ endif
 #FF_NETGRAPH=1
 #FF_IPFW=1
 
+FF_FILESYSTEM=1
 #FF_USE_PAGE_ARRAY=1
 #FF_ZC_SEND=1
 FF_INET6=1
@@ -53,6 +54,21 @@ FF_EXTRA_TCP_STACKS=1
 
 # TCP/UDP loopback.
 #FF_LOOPBACK_SUPPORT=1
+
+ifdef FF_FILESYSTEM
+
+SPDK_ROOT_DIR = ${TOPDIR}/spdk
+
+include $(SPDK_ROOT_DIR)/mk/spdk.common.mk
+include $(SPDK_ROOT_DIR)/mk/spdk.modules.mk
+
+SPDK_LIB_LIST += $(SOCK_MODULES_LIST) nvme vmd env_dpdk
+
+include $(SPDK_ROOT_DIR)/mk/spdk.app_vars.mk
+
+SPDK_CFLAGS= $(COMMON_CFLAGS)
+
+endif
 
 include ${TOPDIR}/mk/kern.pre.mk
 
@@ -71,6 +87,11 @@ INCLUDES+= -I./opt
 
 # Include search path for files that only include host OS headers
 HOST_INCLUDES= -I.
+
+ifdef FF_FILESYSTEM
+HOST_INCLUDES+= -I${TOPDIR}/spdk/include
+endif
+
 # Use libepoll shim on FreeBSD
 ifeq ($(TGT_OS),FreeBSD)
 HOST_INCLUDES+= -I/usr/local/include/libepoll-shim
@@ -88,6 +109,10 @@ endif
 
 HOST_CFLAGS+= ${DPDK_CFLAGS}
 HOST_CFLAGS+= ${CONF_CFLAGS}
+
+ifdef FF_FILESYSTEM
+HOST_CFLAGS+= ${SPDK_CFLAGS} -DFF_FILESYSTEM
+endif
 
 ifdef FF_FDIR
 HOST_CFLAGS+= -DFF_FDIR
@@ -116,6 +141,7 @@ endif
 
 HOST_CFLAGS+= -DINET
 CFLAGS+= -DINET
+#CFLAGS+= -DCOMPAT_LINUX32
 
 GCCVERGE10 = $(shell expr `gcc -dumpversion | cut -f1 -d.` \>= 10)
 ifeq "$(GCCVERGE10)" "1"
@@ -208,6 +234,10 @@ endif
 
 CFLAGS+= -DFSTACK
 
+ifdef FF_FILESYSTEM
+CFLAGS+= -DFF_FILESYSTEM
+endif
+
 ifdef FF_ZC_SEND
 CFLAGS+= -DFSTACK_ZC_SEND
 endif
@@ -248,6 +278,14 @@ endif
 VPATH+= $S/opencrypto
 VPATH+= $S/vm
 VPATH+= $S/libkern
+VPATH+= $S/compat/linux
+ifdef FF_FILESYSTEM
+VPATH+= $S/fs/devfs
+VPATH+= $S/fs/ext2fs
+VPATH+= $S/fs/deadfs
+VPATH+= $S/geom
+VPATH+= $S/dev/nvd
+endif
 
 
 FF_SRCS+=                     \
@@ -268,6 +306,14 @@ FF_SRCS+=                     \
 	ff_vfs_ops.c          \
 	ff_veth.c             \
 	ff_route.c
+	
+ifdef FF_FILESYSTEM
+FF_SRCS+=                 \
+	ff_nvme.c	          \
+	ff_nvd.c	          \
+	ff_vm_init.c          \
+	ff_pmap.c
+endif
 
 ifdef FF_NETGRAPH
 FF_SRCS+=                   \
@@ -285,6 +331,12 @@ FF_HOST_SRCS+=              \
 	ff_epoll.c          \
 	ff_log.c            \
 	ff_init.c
+
+
+ifdef FF_FILESYSTEM
+FF_HOST_SRCS+=              \
+	ff_spdk_if.c
+endif
 
 ifdef FF_KNI
 FF_HOST_SRCS+=              \
@@ -360,6 +412,66 @@ KERN_SRCS+=                 \
 	uipc_socket.c       \
 	uipc_syscalls.c
 
+ifdef FF_FILESYSTEM
+KERN_SRCS+=             \
+	subr_pctrie.c       \
+	vfs_syscalls.c      \
+	vfs_lookup.c        \
+	vfs_vnops.c         \
+	vfs_init.c          \
+	vfs_default.c       \
+	vfs_subr.c          \
+	vfs_hash.c          \
+	vfs_mount.c         \
+	vfs_mountroot.c     \
+	vfs_cluster.c       \
+	vnode_if.c          \
+	vfs_bio.c           \
+	vfs_cache.c         \
+	kern_conf.c         \
+	devfs_devs.c	    \
+	devfs_dir.c    	    \
+	devfs_rule.c 	    \
+	devfs_vfsops.c 	    \
+	devfs_vnops.c	    \
+	dead_vnops.c	    \
+	ext2_acl.c	        \
+	ext2_balloc.c	    \
+	ext2_inode.c 	    \
+	ext2_vnops.c 	    \
+	ext2_bmap.c 	    \
+	ext2_extents.c      \
+	ext2_hash.c    	    \
+	ext2_inode_cnv.c    \
+	ext2_subr.c   	    \
+	ext2_alloc.c	    \
+	ext2_csum.c    	    \
+	ext2_extattr.c      \
+	ext2_htree.c        \
+	ext2_lookup.c       \
+	ext2_vfsops.c	    \
+	memcchr.c	        \
+	vm_object.c	        \
+	vnode_pager.c	    \
+	vm_pager.c	        \
+	vm_page.c	        \
+	vm_radix.c	        \
+	vm_phys.c           \
+	vm_reserv.c         \
+	vm_domainset.c      \
+	vm_meter.c          \
+	kern_sendfile.c     \
+	geom_vfs.c	        \
+	geom_io.c           \
+	geom_subr.c	        \
+	geom_event.c	    \
+	geom_ctl.c	        \
+	geom_disk.c	        \
+	geom_dump.c	        \
+	geom_kern.c	        \
+	geom_dev.c	        \
+	subr_disk.c
+endif
 
 KERN_MHEADERS+=		\
 	bus_if.m	\
@@ -557,6 +669,8 @@ NETINET6_SRCS+=		\
 	#ip6_ipsec.c
 	#sctp6_usrreq.c
 	#in6_rss.c
+endif		#INET6
+
 
 ifdef FF_TCPHPTS
 EXTRA_TCP_STACKS_SRCS+=		\
@@ -582,7 +696,7 @@ FF_HOST_SRCS+=         \
 endif		#FF_KNI
 endif		#FreeBSD OS Check
 
-endif		#INET6
+
 
 ifdef FF_IPFW
 NETIPFW_SRCS+=             \
@@ -664,6 +778,18 @@ HOST_OBJS+= $(patsubst %.c,%.o,${HOST_SRCS})
 
 all: libfstack.a
 
+ifndef FF_FILESYSTEM
+SYS_LIBS= -lrt -lm -ldl -lcrypto -pthread -lnuma
+endif
+
+libfstack.pc: libfstack.pc.in
+	sed -e 's|@VERSION@|$(F-STACK_VERSION)|g' \
+		-e 's|@prefix@|$(PREFIX)|g' \
+		-e 's|@SYS_LIBS@|$(SYS_LIBS)|g' \
+		-e 's|@SPDK_LIBS@|$(SPDK_LIB_LINKER_ARGS)|g' \
+		-e 's|@CFLAGS@|$(COMMON_CFLAGS)|g' \
+		$< > $@
+
 #
 # The library is built by first incrementally linking all the object
 # to resolve internal references.  Then, all symbols are made local.
@@ -671,6 +797,7 @@ all: libfstack.a
 # externally available.
 #
 libfstack.a: machine_includes ff_api.symlist ${MHEADERS} ${MSRCS} ${HOST_OBJS} ${ASM_OBJS} ${OBJS}
+	rm -rf libfstack.pc
 	${LD} -d -r -o $*.ro ${ASM_OBJS} ${OBJS}
 	nm $*.ro  | grep -v ' U ' | cut -d ' ' -f 3 > $*_localize_list.tmp
 	objcopy --localize-symbols=$*_localize_list.tmp $*.ro
@@ -713,6 +840,8 @@ machine_includes:
 	@if [ "${X86_INCLUDES}" != "0" ]; then 				\
 		mkdir -p ${MACHINE_INCLUDES_ROOT}/x86;			\
 		cp -r $S/x86/include/* ${MACHINE_INCLUDES_ROOT}/x86;	\
+		mkdir -p ${MACHINE_INCLUDES_ROOT}/linux;			\
+        cp -r $S/amd64/linux/*.h ${MACHINE_INCLUDES_ROOT}/linux;	\
 	fi
 
 #
@@ -727,9 +856,15 @@ vnode_if_newproto.h:
 vnode_if_typedef.h:
 	${AWK} -f $S/tools/vnode_if.awk $S/kern/vnode_if.src -q
 
+ifdef FF_FILESYSTEM
+vnode_if.c: $S/tools/vnode_if.awk $S/kern/vnode_if.src
+	${AWK} -f $S/tools/vnode_if.awk $S/kern/vnode_if.src -c
+endif
+
 include ${TOPDIR}/mk/kern.mk
 
-install:
+install:libfstack.a libfstack.pc
+	rm -rf ${PREFIX_LIB}/pkgconfig/libfstack.pc
 	rm -rf ${PREFIX_LIB}/libfstack.a.${F-STACK_VERSION}
 	rm -rf ${PREFIX_LIB}/libfstack.a
 	rm -rf ${PREFIX_INCLUDE}/ff_config.h
@@ -740,6 +875,7 @@ install:
 	rm -rf ${PREFIX_INCLUDE}/ff_log.h
 	rm -rf ${PREFIX_BIN}/ff_start
 
+	cp -rf libfstack.pc ${PREFIX_LIB}/pkgconfig/libfstack.pc
 	cp -f libfstack.a ${PREFIX_LIB}/libfstack.a.${F-STACK_VERSION}
 	ln -sf ${PREFIX_LIB}/libfstack.a.${F-STACK_VERSION} ${PREFIX_LIB}/libfstack.a
 	cp -f ff_config.h ${PREFIX_INCLUDE}/ff_config.h
@@ -752,6 +888,7 @@ install:
 	test -f '${F-STACK_CONF}' || cp -f ${TOPDIR}/config.ini ${F-STACK_CONF}
 
 uninstall:
+	rm -rf ${PREFIX_LIB}/pkgconfig/libfstack.pc
 	rm -rf ${PREFIX_LIB}/libfstack.a.${F-STACK_VERSION}
 	rm -rf ${PREFIX_LIB}/libfstack.a
 	rm -rf ${PREFIX_INCLUDE}/ff_config.h
@@ -762,4 +899,3 @@ uninstall:
 	rm -rf ${PREFIX_INCLUDE}/ff_log.h
 	rm -rf ${PREFIX_BIN}/ff_start
 	rm -rf ${F-STACK_CONF}
-

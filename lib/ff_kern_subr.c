@@ -40,7 +40,11 @@
 #include <sys/sched.h>
 #include <sys/sysctl.h>
 #include <sys/uio.h>
-
+#ifdef FF_FILESYSTEM
+#include <vm/vm.h>
+#include <vm/vm_object.h>
+#include <vm/vm_page.h>
+#endif
 #include "ff_host_interface.h"
 
 static __inline int
@@ -224,6 +228,78 @@ out:
     return (error);
 }
 
+#ifdef FF_FILESYSTEM
+int
+uiomove_fromphys(vm_page_t ma[], vm_offset_t offset, int n, struct uio *uio)
+{
+    struct thread *td = curthread;
+    struct iovec *iov;
+    void *cp;
+    vm_offset_t page_offset, vaddr;
+    size_t cnt;
+    int error = 0;
+    int save = 0;
+    boolean_t mapped;
+
+    KASSERT(uio->uio_rw == UIO_READ || uio->uio_rw == UIO_WRITE,
+        ("uiomove_fromphys: mode"));
+    KASSERT(uio->uio_segflg != UIO_USERSPACE || uio->uio_td == curthread,
+        ("uiomove_fromphys proc"));
+    save = td->td_pflags & TDP_DEADLKTREAT;
+    td->td_pflags |= TDP_DEADLKTREAT;
+    mapped = FALSE;
+    while (n > 0 && uio->uio_resid) {
+        iov = uio->uio_iov;
+        cnt = iov->iov_len;
+        if (cnt == 0) {
+            uio->uio_iov++;
+            uio->uio_iovcnt--;
+            continue;
+        }
+        if (cnt > n)
+            cnt = n;
+        page_offset = offset & PAGE_MASK;
+        cnt = min(cnt, PAGE_SIZE - page_offset);
+        vaddr = VM_PAGE_TO_PHYS(ma[offset >> PAGE_SHIFT]);
+        cp = (char *)vaddr + page_offset;
+
+        switch (uio->uio_segflg) {
+            case UIO_USERSPACE:
+                maybe_yield();
+                if (uio->uio_rw == UIO_READ)
+                    error = copyout(cp, iov->iov_base, cnt);
+                else
+                    error = copyin(iov->iov_base, cp, cnt);
+                if (error)
+                    goto out;
+                break;
+
+            case UIO_SYSSPACE:
+                if (uio->uio_rw == UIO_READ)
+                    bcopy(cp, iov->iov_base, cnt);
+                else
+                    bcopy(iov->iov_base, cp, cnt);
+                break;
+
+            case UIO_NOCOPY:
+                
+                break;
+        }
+		iov->iov_base = (char *)iov->iov_base + cnt;
+        iov->iov_len -= cnt;
+        uio->uio_resid -= cnt;
+        uio->uio_offset += cnt;
+        offset += cnt;
+        n -= cnt;
+    }
+out:
+
+    if (save == 0)
+        td->td_pflags &= ~TDP_DEADLKTREAT;
+
+    return (error);
+}
+#endif
 int
 copyinuio(const struct iovec *iovp, u_int iovcnt, struct uio **uiop)
 {
@@ -262,6 +338,22 @@ copyinuio(const struct iovec *iovp, u_int iovcnt, struct uio **uiop)
     *uiop = uio;
     return (0);
 }
+
+#ifdef FF_FILESYSTEM
+struct uio *
+cloneuio(struct uio *uiop)
+{
+    struct uio *uio;
+    int iovlen;
+
+    iovlen = uiop->uio_iovcnt * sizeof (struct iovec);
+    uio = malloc(iovlen + sizeof *uio, M_IOV, M_WAITOK);
+    *uio = *uiop;
+    uio->uio_iov = (struct iovec *)(uio + 1);
+    bcopy(uiop->uio_iov, uio->uio_iov, iovlen);
+    return (uio);
+}
+#endif
 
 int
 copyout_nofault(const void *kaddr, void *udaddr, size_t len)

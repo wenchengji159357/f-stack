@@ -58,11 +58,24 @@
 #include <sys/eventfd.h>
 #include <sys/linker.h>
 #include <sys/sleepqueue.h>
-
+#ifdef FF_FILESYSTEM
+#include <sys/vnode.h>
+#include <sys/mount.h>
+#include <sys/namei.h>
+#include <sys/rangelock.h>
+#include <sys/devicestat.h>
+#include <sys/sbuf.h>
+#include <sys/rwlock.h>
+#include <sys/disk.h>
+#endif
 #include <vm/vm.h>
 #include <vm/vm_param.h>
 #include <vm/pmap.h>
 #include <vm/vm_object.h>
+#ifdef FF_FILESYSTEM
+#include <vm/vm_page.h>
+#include <vm/vm_pager.h>
+#endif
 #include <vm/vm_map.h>
 #include <vm/vm_extern.h>
 #include <vm/vm_domainset.h>
@@ -79,11 +92,11 @@
 int kstack_pages = KSTACK_PAGES;
 SYSCTL_INT(_kern, OID_AUTO, kstack_pages, CTLFLAG_RD, &kstack_pages, 0,
     "Kernel stack size in pages");
-
+#ifndef FF_FILESYSTEM
 int __read_mostly vm_ndomains = 1;
 SYSCTL_INT(_vm, OID_AUTO, ndomains, CTLFLAG_RD,
     &vm_ndomains, 0, "Number of physical memory domains available.");
-
+#endif
 #ifndef MAXMEMDOM
 #define MAXMEMDOM 1
 #endif
@@ -92,9 +105,11 @@ struct domainset __read_mostly domainset_fixed[MAXMEMDOM];
 struct domainset __read_mostly domainset_prefer[MAXMEMDOM];
 struct domainset __read_mostly domainset_roundrobin;
 
+#ifndef FF_FILESYSTEM
 struct vm_domain vm_dom[MAXMEMDOM];
 
 domainset_t __exclusive_cache_line vm_min_domains;
+#endif
 
 int bootverbose;
 
@@ -111,6 +126,19 @@ SYSCTL_ROOT_NODE(CTL_MACHDEP, machdep, CTLFLAG_RW, 0, "machine dependent");
 SYSCTL_ROOT_NODE(CTL_VM, vm, CTLFLAG_RW, 0, "Virtual memory");
 
 SYSCTL_ROOT_NODE(CTL_DEBUG, debug, CTLFLAG_RW, 0, "Debugging");
+
+#ifdef FF_FILESYSTEM
+
+SYSCTL_NODE(_debug, OID_AUTO,  sizeof,  CTLFLAG_RW | CTLFLAG_MPSAFE, 0,
+    "Sizeof various things");
+
+SYSCTL_NODE(_security, OID_AUTO, bsd, CTLFLAG_RW | CTLFLAG_MPSAFE, 0,
+    "BSD security policy");
+
+SYSCTL_ROOT_NODE(CTL_HW, hw, CTLFLAG_RW | CTLFLAG_MPSAFE, 0,
+    "hardware");
+
+#endif
 
 SYSCTL_ROOT_NODE(OID_AUTO, security, CTLFLAG_RW, 0, "Security");
 
@@ -168,6 +196,7 @@ int smp_topology = 0;    /* Which topology we're using. */
 SYSCTL_INT(_kern_smp, OID_AUTO, topology, CTLFLAG_RDTUN, &smp_topology, 0,
     "Topology override setting; 0 is default provided by hardware.");
 
+#ifndef FF_FILESYSTEM
 u_int vn_lock_pair_pause_max = 1; // ff_global_cfg.freebsd.hz / 100;
 SYSCTL_UINT(_debug, OID_AUTO, vn_lock_pair_pause_max, CTLFLAG_RW,
     &vn_lock_pair_pause_max, 0,
@@ -176,21 +205,532 @@ SYSCTL_UINT(_debug, OID_AUTO, vn_lock_pair_pause_max, CTLFLAG_RW,
 long first_page = 0;
 
 struct vmmeter vm_cnt;
+#endif
 vm_map_t kernel_map = 0;
 vm_map_t kmem_map = 0;
 
 vmem_t *kernel_arena = NULL;
 vmem_t *kmem_arena = NULL;
 
+#ifdef FF_FILESYSTEM
+vmem_t *buffer_arena = NULL;
+vmem_t *transient_arena = NULL;
+#endif
+
+#ifndef FF_FILESYSTEM
 struct vm_object kernel_object_store;
+#endif
+
 struct vm_object kmem_object_store;
 
+#ifndef FF_FILESYSTEM
 struct filterops fs_filtops;
+#endif
+
 struct filterops sig_filtops;
 
-int cold = 1;
+#ifdef FF_FILESYSTEM
+struct vop_vector fifo_specops;
+int swap_pager_avail;
+int allproc_gen;
+u_long vm_kmem_size;
+bool __read_frequently panicked;
+int __read_mostly dumping;
+int
+sysctl_handle_domainset(SYSCTL_HANDLER_ARGS)
+{
+    return 0;
+}
 
+void
+cngets(char *cp, size_t size, int visible);
+
+void
+cngets(char *cp, size_t size, int visible)
+{
+
+}
+
+void
+inittodr(time_t base)
+{
+
+}
+
+// kern_lock.c
+int
+lockstatus(const struct lock *lk)
+{
+    return 0;
+}
+
+int
+lockmgr_lock_flags(struct lock *lk, u_int flags, struct lock_object *ilk,
+    const char *file, int line)
+{
+    return 0;
+}
+
+int
+lockmgr_unlock(struct lock *lk)
+{
+    return 0;
+}
+
+void
+_lockmgr_disown(struct lock *lk, const char *file, int line)
+{
+
+}
+
+int
+lockmgr_slock(struct lock *lk, u_int flags, const char *file, int line)
+{
+    return 0;
+}
+
+int
+lockmgr_xlock(struct lock *lk, u_int flags, const char *file, int line)
+{
+    return 0;
+}
+
+int	wdog_kern_pat(u_int utim);
+int	wdog_kern_pat(u_int utim)
+{
+    return 0;
+}
+
+int
+vm_mmap_cdev(struct thread *td, vm_size_t objsize, vm_prot_t prot,
+    vm_prot_t *maxprotp, int *flagsp, struct cdev *cdev, struct cdevsw *dsw,
+    vm_ooffset_t *foff, vm_object_t *objp)
+{
+    return ENOTSUP;
+}
+
+int
+vm_mmap_object(vm_map_t map, vm_offset_t *addr, vm_size_t size, vm_prot_t prot,
+    vm_prot_t maxprot, int flags, vm_object_t object, vm_ooffset_t foff,
+    boolean_t writecounted, struct thread *td)
+{
+    return ENOTSUP;
+}
+
+
+void
+umtx_shm_object_terminated(vm_object_t object)
+{
+
+}
+
+
+
+
+
+
+void
+devctl_safe_quote_sb(struct sbuf *sb, const char *src)
+{
+    while (*src != '\0') {
+        if (*src == '"' || *src == '\\')
+            sbuf_putc(sb, '\\');
+        sbuf_putc(sb, *src++);
+    }
+}
+
+int
+kmem_back_domain(int domain, vm_object_t object, vm_offset_t addr,
+    vm_size_t size, int flags)
+{
+    return 0;
+}
+
+void
+devstat_end_transaction_bio(struct devstat *ds, const struct bio *bp)
+{
+
+}
+
+int
+__lockmgr_args(struct lock *lk, u_int flags, struct lock_object *ilk,
+    const char *wmesg, int pri, int timo, const char *file, int line)
+{
+    return 0;
+}
+
+void kern_psignal(struct proc *p, int sig)
+{
+
+}
+
+void
+kproc_start(const void *udata)
+{
+
+}
+
+void
+kproc_shutdown(void *arg, int howto)
+{
+
+}
+
+void
+kthread_shutdown(void *arg, int howto)
+{
+
+}
+
+void
+kthread_suspend_check(void)
+{
+
+}
+
+void
+kproc_suspend_check(struct proc *p)
+{
+
+}
+
+extern vmem_t *kernel_arena;
+
+vm_offset_t
+kva_alloc(vm_size_t size)
+{
+    vm_offset_t addr;
+
+    size = round_page(size);
+    if (vmem_alloc(kernel_arena, size, M_BESTFIT | M_NOWAIT, &addr))
+        return (0);
+
+    return (addr);
+}
+
+void
+kva_free(vm_offset_t addr, vm_size_t size)
+{
+
+    size = round_page(size);
+    vmem_free(kernel_arena, addr, size);
+}
+
+int prison_allow(struct ucred *cred, unsigned flag)
+{
+    return ((cred->cr_prison->pr_allow & flag) != 0);
+}
+
+void lockinit(struct lock *lk, int pri, const char *wmesg, int timo, int flags)
+{
+
+}
+
+void lockallowshare(struct lock *lk)
+{
+
+}
+
+void lockdestroy(struct lock *lk)
+{
+
+}
+
+void
+lockmgr_printinfo(const struct lock *lk)
+{
+
+}
+
+void
+maybe_yield(void)
+{
+
+}
+
+void mtx_wait_unlocked(struct mtx *m)
+{
+
+}
+
+void
+prison_add_vfs(struct vfsconf *vfsp)
+{
+
+}
+
+int
+prison_check(struct ucred *cred1, struct ucred *cred2)
+{
+    return 0;
+}
+
+int
+priv_check_cred_vfs_lookup_nomac(struct ucred *cred)
+{
+    return 0;
+}
+
+uint32_t prng32_bounded(uint32_t bound);
+uint32_t prng32_bounded(uint32_t bound)
+{
+    return 0;
+}
+
+#include <sys/rangelock.h>
+
+void
+rangelock_init(struct rangelock *lock)
+{
+
+    TAILQ_INIT(&lock->rl_waiters);
+    lock->rl_currdep = NULL;
+}
+
+void
+rangelock_destroy(struct rangelock *lock)
+{
+    KASSERT(TAILQ_EMPTY(&lock->rl_waiters), ("Dangling waiters"));
+}
+
+int
+should_yield(void)
+{
+    return 1;
+}
+
+void
+sigallowstop_impl(int prev)
+{
+
+}
+
+int
+sig_intr(void)
+{
+    return 1;
+}
+
+
+int
+priv_check_cred_vfs_generation(struct ucred *cred)
+{
+    return 0;
+}
+
+void
+crfree(struct ucred *cr)
+{
+
+}
+
+struct ucred *
+crdup(struct ucred *cr)
+{
+    //return (cr);
+    return NULL;
+}
+
+int
+vfs_export(struct mount *mp, struct export_args *argp)
+{
+    return 0;
+}
+
+int
+vfs_setpublicfs(struct mount *mp, struct netexport *nep,
+                struct export_args *argp)
+{
+    return 0;
+}
+
+void
+vfs_unp_reclaim(struct vnode *vp);
+
+void
+vfs_unp_reclaim(struct vnode *vp)
+{
+
+}
+
+//kern_synch.c
+
+void
+_blockcount_wakeup(blockcount_t *bc, u_int old);
+void
+_blockcount_wakeup(blockcount_t *bc, u_int old)
+{
+
+}
+
+int
+_blockcount_sleep(blockcount_t *bc, struct lock_object *lock, const char *wmesg,
+    int prio);
+int
+_blockcount_sleep(blockcount_t *bc, struct lock_object *lock, const char *wmesg,
+    int prio)
+{
+    return 0;
+}
+
+int
+physio(struct cdev *dev, struct uio *uio, int ioflag);
+
+int
+physio(struct cdev *dev, struct uio *uio, int ioflag)
+{
+    return ENOTSUP;
+}
+
+struct pagerops defaultpagerops;
+struct pagerops swappagerops;
+struct pagerops devicepagerops;
+struct pagerops physpagerops;
+struct pagerops sgpagerops;
+struct pagerops mgtdevicepagerops;
+
+
+int led_set(char const *name, char const *cmd);
+
+int
+led_set(char const *name, char const *cmd)
+{
+    return ENOTSUP;
+}
+
+
+/*
+ *	zfree:
+ *
+ *	Zero then free a block of memory allocated by malloc.
+ *
+ *	This routine may not block.
+ */
+void
+zfree(void *addr, struct malloc_type *mtp)
+{
+
+}
+
+//kern_shutdown.c
+int
+dumper_remove(const char *devname, const struct diocskerneldump_arg *kda)
+{
+    return ENOTSUP;
+}
+
+int
+dumper_insert(const struct dumperinfo *di_template, const char *devname,
+    const struct diocskerneldump_arg *kda)
+{
+    return ENOTSUP;
+}
+
+//subr_devstat.c
+void
+devstat_remove_entry(struct devstat *ds)
+{
+
+}
+
+struct devstat *
+devstat_new_entry(const void *dev_name,
+          int unit_number, uint32_t block_size,
+          devstat_support_flags flags,
+          devstat_type_flags device_type,
+          devstat_priority priority)
+{
+    return NULL;
+}
+
+void
+devstat_start_transaction_bio(struct devstat *ds, struct bio *bp)
+{
+
+}
+
+void
+devstat_start_transaction_bio_t0(struct devstat *ds, struct bio *bp)
+{
+
+}
+
+void
+devstat_end_transaction_bio_bt(struct devstat *ds, const struct bio *bp,
+    const struct bintime *now)
+{
+
+}
+
+struct msgbuf *msgbufp;
+
+
+int
+vm_fault_disable_pagefaults(void)
+{
+    return 0;
+}
+
+void
+vm_fault_enable_pagefaults(int save)
+{
+
+}
+
+int
+vm_fault_quick_hold_pages(vm_map_t map, vm_offset_t addr, vm_size_t len,
+    vm_prot_t prot, vm_page_t *ma, int max_count)
+{
+    return 0;
+}
+
+int
+sigdeferstop_impl(int mode)
+{
+    return -1;
+}
+
+void
+rangelock_unlock(struct rangelock *lock, void *cookie, struct mtx *ilk)
+{
+
+}
+
+void *
+rangelock_tryrlock(struct rangelock *lock, off_t start, off_t end,
+    struct mtx *ilk)
+{
+    return NULL;
+}
+
+void *
+rangelock_wlock(struct rangelock *lock, off_t start, off_t end, struct mtx *ilk)
+{
+    return NULL;
+}
+
+void *
+rangelock_rlock(struct rangelock *lock, off_t start, off_t end, struct mtx *ilk)
+{
+    return NULL;
+}
+
+int
+prison_canseemount(struct ucred *cred, struct mount *mp)
+{
+    return 0;
+}
+
+void
+prison_enforce_statfs(struct ucred *cred, struct mount *mp, struct statfs *sp)
+{
+
+}
+#endif
+int cold = 1;
+#ifndef FF_FILESYSTEM
 int unmapped_buf_allowed = 1;
+#endif
 
 int cpu_deepest_sleep = 0;    /* Deepest Cx state available. */
 int cpu_disable_c2_sleep = 0; /* Timer dies in C2. */
@@ -881,6 +1421,7 @@ crhold(struct ucred *cr)
     return (cr);
 }
 
+#ifndef FF_FILESYSTEM
 /*
  * Free a cred structure.  Throws away space when ref count gets to 0.
  */
@@ -894,6 +1435,7 @@ crfree(struct ucred *cr)
         free(cr, M_CRED);
     }
 }
+#endif
 
 /*
  * Fill in a struct xucred based on a struct ucred.
@@ -1114,12 +1656,13 @@ DELAY(int delay)
      */
     //nanosleep(&rqt, NULL);
 }
-
+#ifndef FF_FILESYSTEM
 void 
 bwillwrite(void) 
 {
 
 }
+
 
 off_t
 foffset_lock(struct file *fp, int flags)
@@ -1158,7 +1701,7 @@ foffset_lock(struct file *fp, int flags)
     mtx_unlock(mtxp);
     return (res);
 }
-
+#endif
 #if 0
 void
 sf_ext_free(void *arg1, void *arg2)
@@ -1224,6 +1767,7 @@ groupmember(gid_t gid, struct ucred *cred)
     return (0);
 }
 
+#ifndef FF_FILESYSTEM
 int
 vm_wait_doms(const domainset_t *wdoms, int mflags)
 {
@@ -1243,6 +1787,7 @@ vm_domainset_iter_policy(struct vm_domainset_iter *di, int *domain)
     //return (EJUSTRETURN);
     return 0;
 }
+#endif
 
 vm_offset_t
 kmem_malloc_domainset(struct domainset *ds, vm_size_t size, int flags)
@@ -1421,11 +1966,13 @@ elf_cpu_parse_dynamic(caddr_t loadbase __unused, Elf_Dyn *dynamic __unused)
 }
 #endif
 
+#ifndef FF_FILESYSTEM
 int
 pmap_change_prot(vm_offset_t va, vm_size_t size, vm_prot_t prot)
 {
     return 0;
 }
+#endif
 
 void *
 memset_early(void *buf, int c, size_t len)
@@ -1452,11 +1999,13 @@ sleepq_chains_remove_matching(bool (*matches)(struct thread *))
 
 }
 
+#ifndef FF_FILESYSTEM
 u_int
 vm_free_count(void)
 {
     return vm_dom[0].vmd_free_count;
 }
+#endif
 
 struct proc *
 pfind_any(pid_t pid)

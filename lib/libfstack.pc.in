@@ -1,0 +1,11 @@
+prefix=@prefix@
+libdir=${libdir}/lib
+includedir=${libdir}/include
+
+Name: libfstack
+Description: Library for storage systems
+Version: @VERSION@
+Requires: libdpdk
+Libs: -L${libdir} -Wl,--whole-archive,-lfstack,--no-whole-archive @SPDK_LIBS@
+Libs.private:@SYS_LIBS@
+Cflags: -I${includedir} @CFLAGS@

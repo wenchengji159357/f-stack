@@ -447,6 +447,10 @@ taskqueue_unblock(struct taskqueue *queue)
 	TQ_UNLOCK(queue);
 }
 
+#if defined(__GNUC__) && __GNUC__ >= 13
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdangling-pointer"
+#endif
 static void
 taskqueue_run_locked(struct taskqueue *queue)
 {
@@ -489,6 +493,10 @@ taskqueue_run_locked(struct taskqueue *queue)
 		NET_EPOCH_EXIT(et);
 	LIST_REMOVE(&tb, tb_link);
 }
+
+#if defined(__GNUC__) && __GNUC__ >= 13
+#pragma GCC diagnostic pop
+#endif
 
 void
 taskqueue_run(struct taskqueue *queue)

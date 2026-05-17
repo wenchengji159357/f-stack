@@ -580,6 +580,33 @@ vprintf(const char *fmt, va_list ap)
     return (retval);
 }
 
+#ifdef FF_FILESYSTEM
+static void
+snprintf_func(int ch, void *arg)
+{
+    struct snprintf_arg *const info = arg;
+
+    if (info->remain >= 2) {
+        *info->str++ = ch;
+        info->remain--;
+    }
+}
+
+int
+vsnrprintf(char *str, size_t size, int radix, const char *format, va_list ap)
+{
+    struct snprintf_arg info;
+    int retval;
+
+    info.str = str;
+    info.remain = size;
+    retval = kvprintf(format, snprintf_func, &info, radix, ap);
+    if (info.remain >= 1)
+        *info.str++ = '\0';
+    return (retval);
+}
+#endif
+
 void
 vlog(int level, const char *fmt, va_list ap)
 {

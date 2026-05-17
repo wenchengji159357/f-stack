@@ -59,6 +59,8 @@ char html[] =
 "</body>\r\n"
 "</html>";
 
+int loop(void *arg);
+
 int loop(void *arg)
 {
     /* Wait for events to happen */
@@ -107,6 +109,10 @@ int loop(void *arg)
         } else if (event.filter == EVFILT_READ) {
             char buf[256];
             ssize_t readlen = ff_read(clientfd, buf, sizeof(buf));
+            if (readlen > 0) {
+                buf[readlen] = '\0';
+                printf("buf = %s\n",buf);
+            }
             ssize_t writelen = ff_write(clientfd, html, sizeof(html) - 1);
             if (writelen < 0){
                 ff_log(FF_LOG_ERR, FF_LOGTYPE_FSTACK_APP, "ff_write failed:%d, %s\n", errno,

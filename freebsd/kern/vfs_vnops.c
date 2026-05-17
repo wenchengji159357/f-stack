@@ -104,7 +104,9 @@ static fo_poll_t	vn_poll;
 static fo_kqfilter_t	vn_kqfilter;
 static fo_stat_t	vn_statfile;
 static fo_close_t	vn_closefile;
+#ifndef FSTACK
 static fo_mmap_t	vn_mmap;
+#endif
 static fo_fallocate_t	vn_fallocate;
 
 struct 	fileops vnops = {
@@ -121,7 +123,11 @@ struct 	fileops vnops = {
 	.fo_sendfile = vn_sendfile,
 	.fo_seek = vn_seek,
 	.fo_fill_kinfo = vn_fill_kinfo,
+#ifndef FSTACK
 	.fo_mmap = vn_mmap,
+#else
+     .fo_mmap = NULL,
+#endif
 	.fo_fallocate = vn_fallocate,
 	.fo_flags = DFLAG_PASSABLE | DFLAG_SEEKABLE
 };
@@ -862,7 +868,7 @@ get_advice(struct file *fp, struct uio *uio)
 	mtx_unlock(mtxp);
 	return (ret);
 }
-
+#ifndef FSTACK
 int
 vn_read_from_obj(struct vnode *vp, struct uio *uio)
 {
@@ -969,7 +975,7 @@ out_pip:
 		return (error);
 	return (uio->uio_resid == 0 ? 0 : EJUSTRETURN);
 }
-
+#endif
 /*
  * File table vnode read routine.
  */
@@ -1489,7 +1495,7 @@ vn_io_fault_uiomove(char *data, int xfersize, struct uio *uio)
 	uio->uio_offset += adv;
 	return (error);
 }
-
+#ifndef FSTACK
 int
 vn_io_fault_pgmove(vm_page_t ma[], vm_offset_t offset, int xfersize,
     struct uio *uio)
@@ -1527,7 +1533,7 @@ vn_io_fault_pgmove(vm_page_t ma[], vm_offset_t offset, int xfersize,
 	uio->uio_offset += cnt;
 	return (0);
 }
-
+#endif
 /*
  * File table truncate routine.
  */
@@ -2578,7 +2584,7 @@ vn_fill_kinfo_vnode(struct vnode *vp, struct kinfo_file *kif)
 	    kif->kf_un.kf_file.kf_file_rdev; /* truncate */
 	return (0);
 }
-
+#ifndef FSTACK
 int
 vn_mmap(struct file *fp, vm_map_t map, vm_offset_t *addr, vm_size_t size,
     vm_prot_t prot, vm_prot_t cap_maxprot, int flags, vm_ooffset_t foff,
@@ -2692,7 +2698,7 @@ vn_mmap(struct file *fp, vm_map_t map, vm_offset_t *addr, vm_size_t size,
 #endif
 	return (error);
 }
-
+#endif
 void
 vn_fsid(struct vnode *vp, struct vattr *va)
 {

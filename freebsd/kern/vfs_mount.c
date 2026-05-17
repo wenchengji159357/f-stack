@@ -1578,7 +1578,7 @@ vfs_op_exit(struct mount *mp)
 	vfs_op_exit_locked(mp);
 	MNT_IUNLOCK(mp);
 }
-
+#ifndef FSTACK
 struct vfs_op_barrier_ipi {
 	struct mount *mp;
 	struct smp_rendezvous_cpus_retry_arg srcra;
@@ -1626,6 +1626,13 @@ vfs_op_barrier_wait(struct mount *mp)
 	    vfs_op_wait_func,
 	    &vfsopipi.srcra);
 }
+#else
+void
+vfs_op_barrier_wait(struct mount *mp)
+{
+
+}
+#endif
 
 #ifdef DIAGNOSTIC
 void

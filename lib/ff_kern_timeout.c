@@ -106,10 +106,36 @@ SYSCTL_INT(_kern, OID_AUTO, pin_default_swi, CTLFLAG_RDTUN | CTLFLAG_NOFETCH, &p
 SYSCTL_INT(_kern, OID_AUTO, pin_pcpu_swi, CTLFLAG_RDTUN | CTLFLAG_NOFETCH, &pin_pcpu_swi,
     0, "Pin the per-CPU swis (except PCPU 0, which is also default");
 
-#define sleepq_lock(w) do {} while(0)
-#define sleepq_release(w) do {} while(0)
-#define sleepq_add(a, b, c, d, e) do {} while(0)
-#define sleepq_wait(w, p) do {} while(0)
+void
+sleepq_lock(const void *wchan)
+{
+
+}
+
+void
+sleepq_release(const void *wchan)
+{
+
+}
+
+void
+sleepq_add(const void *wchan, struct lock_object *lock, const char *wmesg,
+    int flags, int queue)
+{
+
+}
+
+void
+sleepq_wait(const void *wchan, int pri)
+{
+
+}
+
+int
+sleepq_broadcast(const void *wchan, int flags, int pri, int queue)
+{
+    return 0;
+}
 
 #define    CC_HASH_SHIFT    8
 

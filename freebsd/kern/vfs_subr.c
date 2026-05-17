@@ -105,7 +105,9 @@ __FBSDID("$FreeBSD$");
 static void	delmntque(struct vnode *vp);
 static int	flushbuflist(struct bufv *bufv, int flags, struct bufobj *bo,
 		    int slpflag, int slptimeo);
+#ifndef FSTACK
 static void	syncer_shutdown(void *arg, int howto);
+#endif
 static int	vtryrecycle(struct vnode *vp);
 static void	v_init_counters(struct vnode *);
 static void	vn_seqc_init(struct vnode *);
@@ -637,7 +639,11 @@ vntblinit(void *dummy __unused)
 	    3 * min(98304 * 16, pgtok(vm_cnt.v_page_count)) / 64;
 	virtvnodes = vm_kmem_size / (10 * (sizeof(struct vm_object) +
 	    sizeof(struct vnode) + NC_SZ * ncsizefactor + NFS_NCLNODE_SZ));
+#ifndef FSTACK
 	desiredvnodes = min(physvnodes, virtvnodes);
+#else
+    desiredvnodes = physvnodes;
+#endif
 	if (desiredvnodes > MAXVNODES_MAX) {
 		if (bootverbose)
 			printf("Reducing kern.maxvnodes %lu -> %lu\n",
@@ -1127,8 +1133,9 @@ restart:
 
 		if (vp->v_type == VBAD || vp->v_type == VNON)
 			goto next_iter;
-
+		#pragma GCC diagnostic ignored "-Wcast-qual"
 		object = atomic_load_ptr(&vp->v_object);
+		#pragma GCC diagnostic error "-Wcast-qual"
 		if (object == NULL || object->resident_page_count > trigger) {
 			goto next_iter;
 		}
@@ -2545,6 +2552,7 @@ SYSCTL_PROC(_vfs, OID_AUTO, worklist_len,
     sysctl_vfs_worklist_len, "I", "Syncer thread worklist length");
 
 static struct proc *updateproc;
+#ifndef FSTACK
 static void sched_sync(void);
 static struct kproc_desc up_kp = {
 	"syncer",
@@ -2740,7 +2748,7 @@ sched_sync(void)
 			cv_timedwait(&sync_wakeup, &sync_mtx, hz);
 	}
 }
-
+#endif
 /*
  * Request the syncer daemon to speed up its work.
  * We never push it to speed up more than half of its
@@ -2761,7 +2769,7 @@ speedup_syncer(void)
 	cv_broadcast(&sync_wakeup);
 	return (ret);
 }
-
+#ifndef FSTACK
 /*
  * Tell the syncer to speed up its work and run though its work
  * list several times, then tell it to shut down.
@@ -2798,7 +2806,7 @@ syncer_resume(void)
 	cv_broadcast(&sync_wakeup);
 	kproc_resume(updateproc);
 }
-
+#endif
 /*
  * Move the buffer between the clean and dirty lists of its vnode.
  */
@@ -4956,9 +4964,15 @@ static struct vop_vector sync_vnodeops = {
 	.vop_inactive =	sync_inactive,	/* inactive */
 	.vop_need_inactive = vop_stdneed_inactive, /* need_inactive */
 	.vop_reclaim =	sync_reclaim,	/* reclaim */
+#ifndef FSTACK
 	.vop_lock1 =	vop_stdlock,	/* lock */
 	.vop_unlock =	vop_stdunlock,	/* unlock */
 	.vop_islocked =	vop_stdislocked,	/* islocked */
+#else
+    .vop_lock1 =	VOP_NULL,	/* lock */
+	.vop_unlock =	VOP_NULL,	/* unlock */
+	.vop_islocked =	VOP_NULL,	/* islocked */
+#endif
 };
 VFS_VOP_VECTOR_REGISTER(sync_vnodeops);
 
@@ -6463,10 +6477,12 @@ restart:
 			mp->mnt_rootvnode = NULL;
 		}
 		MNT_IUNLOCK(mp);
+#ifndef FSTACK
 		if (vp != NULL) {
 			vfs_op_barrier_wait(mp);
 			vrele(vp);
 		}
+#endif
 	}
 	error = VFS_CACHEDROOT(mp, flags, vpp);
 	if (error != 0)
@@ -6504,7 +6520,9 @@ vfs_cache_root(struct mount *mp, int flags, struct vnode **vpp)
 
 	if (!vfs_op_thread_enter(mp, mpcpu))
 		return (vfs_cache_root_fallback(mp, flags, vpp));
+	#pragma GCC diagnostic ignored "-Wcast-qual"
 	vp = atomic_load_ptr(&mp->mnt_rootvnode);
+	#pragma GCC diagnostic error "-Wcast-qual"
 	if (vp == NULL || VN_IS_DOOMED(vp)) {
 		vfs_op_thread_exit(mp, mpcpu);
 		return (vfs_cache_root_fallback(mp, flags, vpp));

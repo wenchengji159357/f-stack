@@ -197,8 +197,10 @@ vm_page_init(void *dummy)
 
 	fakepg_zone = uma_zcreate("fakepg", sizeof(struct vm_page), NULL, NULL,
 	    NULL, NULL, UMA_ALIGN_PTR, UMA_ZONE_NOFREE);
+#ifndef FSTACK
 	bogus_page = vm_page_alloc(NULL, 0, VM_ALLOC_NOOBJ |
 	    VM_ALLOC_NORMAL | VM_ALLOC_WIRED);
+#endif
 }
 
 /*
@@ -634,6 +636,7 @@ vm_page_startup(vm_offset_t vaddr)
 		dump_add_page(pa);
 #endif
 	phys_avail[biggestone + 1] = new_end;
+#ifndef FSTACK
 #ifdef __amd64__
 	/*
 	 * Request that the physical pages underlying the message buffer be
@@ -646,6 +649,7 @@ vm_page_startup(vm_offset_t vaddr)
 		dump_add_page(pa);
 		pa += PAGE_SIZE;
 	}
+#endif
 #endif
 	/*
 	 * Compute the number of pages of memory that will be available for
@@ -882,7 +886,9 @@ vm_page_busy_acquire(vm_page_t m, int allocflags)
 	 * It is assumed that a reference to the object is already
 	 * held by the callers.
 	 */
+	#pragma GCC diagnostic ignored "-Wcast-qual"
 	obj = atomic_load_ptr(&m->object);
+	#pragma GCC diagnostic error "-Wcast-qual"
 	for (;;) {
 		if (vm_page_tryacquire(m, allocflags))
 			return (true);
@@ -2042,11 +2048,11 @@ _vm_domain_allocate(struct vm_domain *vmd, int req_class, int npages)
 			return (0);
 		new = old - npages;
 	} while (atomic_fcmpset_int(&vmd->vmd_free_count, &old, new) == 0);
-
+#ifndef FSTACK
 	/* Wake the page daemon if we've crossed the threshold. */
 	if (vm_paging_needed(vmd, new) && !vm_paging_needed(vmd, old))
 		pagedaemon_wakeup(vmd->vmd_domain);
-
+#endif
 	/* Only update bitsets on transitions. */
 	if ((old >= vmd->vmd_free_min && new < vmd->vmd_free_min) ||
 	    (old >= vmd->vmd_free_severe && new < vmd->vmd_free_severe))
@@ -2614,6 +2620,7 @@ vm_page_scan_contig(u_long npages, vm_page_t m_start, vm_page_t m_end,
 
 retry:
 		m_inc = 1;
+		#pragma GCC diagnostic ignored "-Wcast-qual"
 		if (vm_page_wired(m))
 			run_ext = 0;
 #if VM_NRESERVLEVEL > 0
@@ -2704,6 +2711,7 @@ retry:
 			 */
 			run_ext = 0;
 		}
+		#pragma GCC diagnostic error "-Wcast-qual"
 
 		/*
 		 * Extend or reset the current run of pages.
@@ -2766,6 +2774,7 @@ vm_page_reclaim_run(int req_class, int domain, u_long npages, vm_page_t m_run,
 		 * Racily check for wirings.  Races are handled once the object
 		 * lock is held and the page is unmapped.
 		 */
+		#pragma GCC diagnostic ignored "-Wcast-qual"
 		if (vm_page_wired(m))
 			error = EBUSY;
 		else if ((object = atomic_load_ptr(&m->object)) != NULL) {
@@ -2915,6 +2924,7 @@ unlock:
 			if (order == VM_NFREEORDER)
 				error = EINVAL;
 		}
+		#pragma GCC diagnostic error "-Wcast-qual"
 	}
 	if ((m = SLIST_FIRST(&free)) != NULL) {
 		int cnt;
@@ -3353,7 +3363,7 @@ vm_page_pagequeue(vm_page_t m)
 }
 #endif
 
-static __always_inline bool
+static bool
 vm_page_pqstate_fcmpset(vm_page_t m, vm_page_astate_t *old, vm_page_astate_t new)
 {
 	vm_page_astate_t tmp;
@@ -4057,7 +4067,7 @@ vm_page_unwire_noq(vm_page_t m)
  * active or being moved to the active queue, ensure that its act_count is
  * at least ACT_INIT but do not otherwise mess with it.
  */
-static __always_inline void
+static void
 vm_page_mvqueue(vm_page_t m, const uint8_t nqueue, const uint16_t nflag)
 {
 	vm_page_astate_t old, new;
@@ -4198,7 +4208,9 @@ vm_page_release(vm_page_t m, int flags)
 
 	if ((flags & VPR_TRYFREE) != 0) {
 		for (;;) {
+			#pragma GCC diagnostic ignored "-Wcast-qual"
 			object = atomic_load_ptr(&m->object);
+			#pragma GCC diagnostic error "-Wcast-qual"
 			if (object == NULL)
 				break;
 			/* Depends on type-stability. */
@@ -4509,9 +4521,11 @@ vm_page_acquire_unlocked(vm_object_t object, vm_pindex_t pindex,
 		 * has been removed or just inserted and the list is loaded
 		 * without barriers.  Switch to radix to verify.
 		 */
+		#pragma GCC diagnostic ignored "-Wcast-qual"
 		if (prev == NULL || (m = TAILQ_NEXT(prev, listq)) == NULL ||
 		    QMD_IS_TRASHED(m) || m->pindex != pindex ||
 		    atomic_load_ptr(&m->object) != object) {
+		#pragma GCC diagnostic error "-Wcast-qual"
 			prev = NULL;
 			/*
 			 * This guarantees the result is instantaneously

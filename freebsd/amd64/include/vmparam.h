@@ -131,12 +131,13 @@
  * page TLB misses and cache misses caused by 2MB page TLB misses.
  */
 #define	VM_NFREEORDER		13
-
+#ifndef FF_FILESYSTEM
 /*
  * Enable superpage reservations: 1 level.
  */
 #ifndef	VM_NRESERVLEVEL
 #define	VM_NRESERVLEVEL		1
+#endif
 #endif
 
 /*
@@ -215,6 +216,7 @@
  * vt fb startup needs to be reworked.
  */
 #define	PMAP_HAS_DMAP	1
+#ifndef FF_FILESYSTEM
 #define	PHYS_TO_DMAP(x)	({						\
 	KASSERT(dmaplimit == 0 || (x) < dmaplimit,			\
 	    ("physical address %#jx not covered by the DMAP",		\
@@ -227,6 +229,10 @@
 	    ("virtual address %#jx not covered by the DMAP",		\
 	    (uintmax_t)x));						\
 	(x) & ~DMAP_MIN_ADDRESS; })
+#else
+#define	PHYS_TO_DMAP(x) x
+#define	DMAP_TO_PHYS(x)	x
+#endif
 
 /*
  * amd64 maps the page array into KVA so that it can be more easily
@@ -234,6 +240,9 @@
  */
 #define	PMAP_HAS_PAGE_ARRAY	1
 
+#ifdef FF_FILESYSTEM
+#define VM_PHYSSEG_SPARSE
+#endif
 /*
  * How many physical pages per kmem arena virtual page.
  */
@@ -267,10 +276,11 @@
  * The pmap can create non-transparent large page mappings.
  */
 #define	PMAP_HAS_LARGEPAGES	1
-
+#ifndef FF_FILESYSTEM
 /*
  * Need a page dump array for minidump.
  */
 #define MINIDUMP_PAGE_TRACKING	1
 
+#endif
 #endif /* _MACHINE_VMPARAM_H_ */

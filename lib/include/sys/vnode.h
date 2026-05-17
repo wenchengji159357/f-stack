@@ -31,6 +31,9 @@
 #include <sys/uio.h>
 #include <sys/namei.h>
 
+#ifdef FF_FILESYSTEM
+#include_next <sys/vnode.h>
+#else
 /*
  * Vnode types.  VNON means no type.
  */
@@ -160,5 +163,7 @@ vrefact(struct vnode *vp)
 #define IO_SEQMAX   0x7F        /* seq heuristic max value */
 
 extern	u_int vn_lock_pair_pause_max;
+
+#endif
 
 #endif    /* _FSTACK_SYS_VNODE_H_ */

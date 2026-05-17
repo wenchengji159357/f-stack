@@ -3080,6 +3080,10 @@ vfs_vmio_extend(struct buf *bp, int desiredpages, int size)
 		 * deadlocks once allocbuf() is called after
 		 * pages are vfs_busy_pages().
 		 */
+#ifdef FSTACK
+		if (bp->b_npages < 0)
+			return;
+#endif
 		(void)vm_page_grab_pages_unlocked(obj,
 		    OFF_TO_IDX(bp->b_offset) + bp->b_npages,
 		    VM_ALLOC_SYSTEM | VM_ALLOC_IGN_SBUSY |

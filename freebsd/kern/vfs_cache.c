@@ -1461,7 +1461,9 @@ cache_zap_locked(struct namecache *ncp)
 		SDT_PROBE3(vfs, namecache, zap, done, dvp, ncp->nc_name, vp);
 		TAILQ_REMOVE(&vp->v_cache_dst, ncp, nc_dst);
 		if (ncp == vp->v_cache_dd) {
+            #pragma GCC diagnostic ignored "-Wcast-qual"
 			atomic_store_ptr(&vp->v_cache_dd, NULL);
+			#pragma GCC diagnostic error "-Wcast-qual"
 		}
 	} else {
 		SDT_PROBE2(vfs, namecache, zap_negative, done, dvp, ncp->nc_name);
@@ -1469,7 +1471,9 @@ cache_zap_locked(struct namecache *ncp)
 	}
 	if (ncp->nc_flag & NCF_ISDOTDOT) {
 		if (ncp == dvp->v_cache_dd) {
+			#pragma GCC diagnostic ignored "-Wcast-qual"
 			atomic_store_ptr(&dvp->v_cache_dd, NULL);
+			#pragma GCC diagnostic error "-Wcast-qual"
 		}
 	} else {
 		LIST_REMOVE(ncp, nc_src);
@@ -1644,7 +1648,9 @@ retry_dotdot:
 				mtx_unlock(dvlp2);
 			cache_free(ncp);
 		} else {
+			#pragma GCC diagnostic ignored "-Wcast-qual"
 			atomic_store_ptr(&dvp->v_cache_dd, NULL);
+			#pragma GCC diagnostic error "-Wcast-qual"
 			mtx_unlock(dvlp);
 			if (dvlp2 != NULL)
 				mtx_unlock(dvlp2);
@@ -2254,9 +2260,10 @@ cache_enter_dotdot_prep(struct vnode *dvp, struct vnode *vp,
 	struct namecache *ncp;
 	uint32_t hash;
 	int len;
-
+	#pragma GCC diagnostic ignored "-Wcast-qual"
 	if (atomic_load_ptr(&dvp->v_cache_dd) == NULL)
 		return;
+	#pragma GCC diagnostic error "-Wcast-qual"
 	len = cnp->cn_namelen;
 	cache_celockstate_init(&cel);
 	hash = cache_get_hash(cnp->cn_nameptr, len, dvp);
@@ -2268,7 +2275,9 @@ cache_enter_dotdot_prep(struct vnode *dvp, struct vnode *vp,
 	} else {
 		ncp = NULL;
 	}
+	#pragma GCC diagnostic ignored "-Wcast-qual"
 	atomic_store_ptr(&dvp->v_cache_dd, NULL);
+	#pragma GCC diagnostic error "-Wcast-qual"
 	cache_enter_unlock(&cel);
 	if (ncp != NULL)
 		cache_free(ncp);
@@ -2406,7 +2415,9 @@ cache_enter_time(struct vnode *dvp, struct vnode *vp, struct componentname *cnp,
 		KASSERT(vp == NULL || vp->v_type == VDIR,
 		    ("wrong vnode type %p", vp));
 		atomic_thread_fence_rel();
+		#pragma GCC diagnostic ignored "-Wcast-qual"
 		atomic_store_ptr(&dvp->v_cache_dd, ncp);
+		#pragma GCC diagnostic error "-Wcast-qual"
 	}
 
 	if (vp != NULL) {
@@ -2423,10 +2434,14 @@ cache_enter_time(struct vnode *dvp, struct vnode *vp, struct componentname *cnp,
 					ndd = NULL;
 			}
 			atomic_thread_fence_rel();
+			#pragma GCC diagnostic ignored "-Wcast-qual"
 			atomic_store_ptr(&vp->v_cache_dd, ncp);
+			#pragma GCC diagnostic error "-Wcast-qual"
 		} else if (vp->v_type != VDIR) {
 			if (vp->v_cache_dd != NULL) {
+				#pragma GCC diagnostic ignored "-Wcast-qual"
 				atomic_store_ptr(&vp->v_cache_dd, NULL);
+				#pragma GCC diagnostic error "-Wcast-qual"
 			}
 		}
 	}
@@ -2665,10 +2680,11 @@ retry:
 static bool
 cache_has_entries(struct vnode *vp)
 {
-
+	#pragma GCC diagnostic ignored "-Wcast-qual"
 	if (LIST_EMPTY(&vp->v_cache_src) && TAILQ_EMPTY(&vp->v_cache_dst) &&
 	    atomic_load_ptr(&vp->v_cache_dd) == NULL)
 		return (false);
+	#pragma GCC diagnostic error "-Wcast-qual"
 	return (true);
 }
 
@@ -3281,12 +3297,16 @@ vn_fullpath_any_smr(struct vnode *vp, struct vnode *rdir, char *buf,
 		i++;
 #endif
 		if ((vp->v_vflag & VV_ROOT) != 0) {
+			#pragma GCC diagnostic ignored "-Wcast-qual"
 			mp = atomic_load_ptr(&vp->v_mount);
+			#pragma GCC diagnostic error "-Wcast-qual"
 			if (mp == NULL) {
 				cache_rev_failed(&reason);
 				goto out_abort;
 			}
+			#pragma GCC diagnostic ignored "-Wcast-qual"
 			tvp = atomic_load_ptr(&mp->mnt_vnodecovered);
+			#pragma GCC diagnostic error "-Wcast-qual"
 			tvp_seqc = vn_seqc_read_any(tvp);
 			if (seqc_in_modify(tvp_seqc)) {
 				cache_rev_failed(&reason);
@@ -3332,10 +3352,12 @@ vn_fullpath_any_smr(struct vnode *vp, struct vnode *rdir, char *buf,
 		/*
 		 * Acquire fence provided by vn_seqc_read_any above.
 		 */
+		#pragma GCC diagnostic ignored "-Wcast-qual"
 		if (__predict_false(atomic_load_ptr(&vp->v_cache_dd) != ncp)) {
 			cache_rev_failed(&reason);
 			goto out_abort;
 		}
+		#pragma GCC diagnostic error "-Wcast-qual"
 		if (!cache_ncp_canuse(ncp)) {
 			cache_rev_failed(&reason);
 			goto out_abort;
@@ -4238,8 +4260,9 @@ cache_fplookup_final_modifying(struct cache_fpl *fpl)
 	if (cache_fpl_istrailingslash(fpl)) {
 		return (cache_fpl_partial(fpl));
 	}
-
+	#pragma GCC diagnostic ignored "-Wcast-qual"
 	mp = atomic_load_ptr(&dvp->v_mount);
+	#pragma GCC diagnostic error "-Wcast-qual"
 	if (__predict_false(mp == NULL)) {
 		return (cache_fpl_aborted(fpl));
 	}
@@ -4809,9 +4832,11 @@ cache_fplookup_dotdot(struct cache_fpl *fpl)
 	/*
 	 * Acquire fence provided by vn_seqc_read_any above.
 	 */
+	#pragma GCC diagnostic ignored "-Wcast-qual"
 	if (__predict_false(atomic_load_ptr(&dvp->v_cache_dd) != ncp)) {
 		return (cache_fpl_aborted(fpl));
 	}
+	#pragma GCC diagnostic error "-Wcast-qual"
 
 	if (!cache_ncp_canuse(ncp)) {
 		return (cache_fpl_aborted(fpl));
@@ -4933,8 +4958,9 @@ cache_fplookup_symlink(struct cache_fpl *fpl)
 			return (cache_fplookup_final(fpl));
 		}
 	}
-
+	#pragma GCC diagnostic ignored "-Wcast-qual"
 	mp = atomic_load_ptr(&dvp->v_mount);
+	#pragma GCC diagnostic error "-Wcast-qual"
 	if (__predict_false(mp == NULL)) {
 		return (cache_fpl_aborted(fpl));
 	}
@@ -5007,8 +5033,9 @@ cache_fplookup_next(struct cache_fpl *fpl)
 	if (__predict_false(ncp == NULL)) {
 		return (cache_fplookup_noentry(fpl));
 	}
-
+	#pragma GCC diagnostic ignored "-Wcast-qual"
 	tvp = atomic_load_ptr(&ncp->nc_vp);
+	#pragma GCC diagnostic error "-Wcast-qual"
 	nc_flag = atomic_load_char(&ncp->nc_flag);
 	if ((nc_flag & NCF_NEGATIVE) != 0) {
 		return (cache_fplookup_neg(fpl, ncp, hash));
@@ -5074,7 +5101,9 @@ cache_fplookup_climb_mount(struct cache_fpl *fpl)
 	vp_seqc = fpl->tvp_seqc;
 
 	VNPASS(vp->v_type == VDIR || vp->v_type == VBAD, vp);
+	#pragma GCC diagnostic ignored "-Wcast-qual"
 	mp = atomic_load_ptr(&vp->v_mountedhere);
+	#pragma GCC diagnostic error "-Wcast-qual"
 	if (__predict_false(mp == NULL)) {
 		return (0);
 	}
@@ -5096,7 +5125,9 @@ cache_fplookup_climb_mount(struct cache_fpl *fpl)
 			vfs_op_thread_exit_crit(mp, mpcpu);
 			return (cache_fpl_partial(fpl));
 		}
+		#pragma GCC diagnostic ignored "-Wcast-qual"
 		vp = atomic_load_ptr(&mp->mnt_rootvnode);
+		#pragma GCC diagnostic error "-Wcast-qual"
 		if (vp == NULL) {
 			vfs_op_thread_exit_crit(mp, mpcpu);
 			return (cache_fpl_partial(fpl));
@@ -5108,7 +5139,9 @@ cache_fplookup_climb_mount(struct cache_fpl *fpl)
 		}
 		prev_mp = mp;
 		prev_mpcpu = mpcpu;
+		#pragma GCC diagnostic ignored "-Wcast-qual"
 		mp = atomic_load_ptr(&vp->v_mountedhere);
+		#pragma GCC diagnostic error "-Wcast-qual"
 		if (mp == NULL)
 			break;
 	}
@@ -5131,7 +5164,9 @@ cache_fplookup_cross_mount(struct cache_fpl *fpl)
 	vp_seqc = fpl->tvp_seqc;
 
 	VNPASS(vp->v_type == VDIR || vp->v_type == VBAD, vp);
+	#pragma GCC diagnostic ignored "-Wcast-qual"
 	mp = atomic_load_ptr(&vp->v_mountedhere);
+	#pragma GCC diagnostic error "-Wcast-qual"
 	if (__predict_false(mp == NULL)) {
 		return (0);
 	}
@@ -5147,7 +5182,9 @@ cache_fplookup_cross_mount(struct cache_fpl *fpl)
 		vfs_op_thread_exit_crit(mp, mpcpu);
 		return (cache_fpl_partial(fpl));
 	}
+	#pragma GCC diagnostic ignored "-Wcast-qual"
 	vp = atomic_load_ptr(&mp->mnt_rootvnode);
+	#pragma GCC diagnostic error "-Wcast-qual"
 	if (__predict_false(vp == NULL)) {
 		vfs_op_thread_exit_crit(mp, mpcpu);
 		return (cache_fpl_partial(fpl));
@@ -5157,7 +5194,9 @@ cache_fplookup_cross_mount(struct cache_fpl *fpl)
 	if (seqc_in_modify(vp_seqc)) {
 		return (cache_fpl_partial(fpl));
 	}
+	#pragma GCC diagnostic ignored "-Wcast-qual"
 	mp = atomic_load_ptr(&vp->v_mountedhere);
+	#pragma GCC diagnostic error "-Wcast-qual"
 	if (__predict_false(mp != NULL)) {
 		/*
 		 * There are possibly more mount points on top.
@@ -5623,8 +5662,9 @@ cache_fplookup_impl(struct vnode *dvp, struct cache_fpl *fpl)
 	 */
 	fpl->dvp = dvp;
 	fpl->dvp_seqc = vn_seqc_read_notmodify(fpl->dvp);
-
+	#pragma GCC diagnostic ignored "-Wcast-qual"
 	mp = atomic_load_ptr(&dvp->v_mount);
+	#pragma GCC diagnostic error "-Wcast-qual"
 	if (__predict_false(mp == NULL || !cache_fplookup_mp_supported(mp))) {
 		return (cache_fpl_aborted(fpl));
 	}

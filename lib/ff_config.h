@@ -51,6 +51,9 @@ extern "C" {
 
 extern int dpdk_argc;
 extern char *dpdk_argv[DPDK_CONFIG_NUM + 1];
+#ifdef FF_FILESYSTEM
+extern struct spdk_env_opts ff_spdk_opts;
+#endif
 
 #define MAX_PKT_BURST 32
 #define BURST_TX_DRAIN_US 100 /* TX drain every ~100us */

@@ -1134,7 +1134,11 @@ kern_openat(struct thread *td, int fd, const char *path, enum uio_seg pathseg,
 		return (error);
 	/* Set the flags early so the finit in devfs can pick them up. */
 	fp->f_flag = flags & FMASK;
+#ifdef FSTACK
 	cmode = ((mode & ~pdp->pd_cmask) & ALLPERMS) & ~S_ISTXT;
+#else
+    cmode = (mode & ALLPERMS) & ~S_ISTXT;
+#endif
 	NDINIT_ATRIGHTS(&nd, LOOKUP, FOLLOW | AUDITVNODE1, pathseg, path, fd,
 	    &rights, td);
 	td->td_dupfd = -1;		/* XXX check for fdopen */

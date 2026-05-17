@@ -56,6 +56,10 @@
 #include <rte_eth_bond_8023ad.h>
 #include <rte_mbuf_dyn.h>
 
+#ifdef FF_FILESYSTEM
+#include "spdk/env.h"
+#endif
+
 #include "ff_dpdk_if.h"
 #include "ff_dpdk_pcap.h"
 #include "ff_dpdk_kni.h"
@@ -1352,7 +1356,9 @@ fdir_add_tcp_flow(uint16_t port_id, uint16_t queue, uint16_t dir,
 }
 
 #endif
-
+#ifdef FF_FILESYSTEM
+extern void ff_vm_phys_early_add_seg(uint64_t start, uint64_t end);
+#endif
 int
 ff_dpdk_init(int argc, char **argv)
 {
@@ -1366,10 +1372,19 @@ ff_dpdk_init(int argc, char **argv)
         exit(1);
     }
 
+#ifdef FF_FILESYSTEM
+    int ret = spdk_env_init(&ff_spdk_opts);
+#else
     int ret = rte_eal_init(argc, argv);
+#endif
     if (ret < 0) {
         rte_exit(EXIT_FAILURE, "Error with EAL initialization\n");
     }
+	
+#ifdef FF_FILESYSTEM	
+	const struct rte_memzone *mz = rte_memzone_reserve("ff_filesystem",4096*512,rte_socket_id(),0);
+    ff_vm_phys_early_add_seg((uint64_t)mz->addr, (uint64_t)mz->addr+mz->len);
+#endif
 
     if (ff_global_cfg.log.level) {
         ff_log_open_set();

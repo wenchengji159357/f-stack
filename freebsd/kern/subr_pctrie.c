@@ -177,9 +177,13 @@ pctrie_node_load(smr_pctnode_t *p, smr_t smr, enum pctrie_access access)
 {
 	switch (access) {
 	case PCTRIE_UNSERIALIZED:
+		#pragma GCC diagnostic ignored "-Wcast-qual"
 		return (smr_unserialized_load(p, true));
+		#pragma GCC diagnostic error "-Wcast-qual"
 	case PCTRIE_LOCKED:
+		#pragma GCC diagnostic ignored "-Wcast-qual"
 		return (smr_serialized_load(p, true));
+		#pragma GCC diagnostic error "-Wcast-qual"
 	case PCTRIE_SMR:
 		return (smr_entered_load(p, smr));
 	}
@@ -422,7 +426,11 @@ pctrie_insert(struct pctrie *ptree, uint64_t *val, pctrie_alloc_t allocfn)
  * Returns the value stored at the index.  If the index is not present,
  * NULL is returned.
  */
+#ifndef FSTACK
 static __always_inline uint64_t *
+#else
+static uint64_t *
+#endif
 _pctrie_lookup(struct pctrie *ptree, uint64_t index, smr_t smr,
     enum pctrie_access access)
 {
@@ -430,7 +438,9 @@ _pctrie_lookup(struct pctrie *ptree, uint64_t index, smr_t smr,
 	uint64_t *m;
 	int slot;
 
+	#pragma GCC diagnostic ignored "-Wcast-qual"
 	node = pctrie_root_load(ptree, smr, access);
+	#pragma GCC diagnostic error "-Wcast-qual"
 	while (node != NULL) {
 		if (pctrie_isleaf(node)) {
 			m = pctrie_toval(node);

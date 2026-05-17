@@ -58,14 +58,17 @@ TAILQ_HEAD(prisonlist, prison);
 __thread struct thread *pcurthread = NULL;
 
 struct cdev;
+#ifndef FF_FILESYSTEM
 struct vnode *rootvnode;
+#endif
 extern struct proc proc0;
 struct proclist allproc;
 struct sx allproc_lock;
 struct sx allprison_lock;
 struct prisonlist allprison;
-
+#ifndef FF_FILESYSTEM
 MALLOC_DEFINE(M_FADVISE, "fadvise", "posix_fadvise(2) information");
+#endif
 int async_io_version;
 extern unsigned int rand_r(unsigned int *seed);
 extern int ff_adapt_user_proc_add(struct thread *parent_td, struct thread *td);
@@ -73,12 +76,12 @@ extern int ff_adapt_user_proc_exit(struct thread *td);
 unsigned int seed = 0;
 
 #define M_ZERO        0x0100        /* bzero the allocation */
-
+#ifndef FF_FILESYSTEM
 int vttoif_tab[10] = {
     0, S_IFREG, S_IFDIR, S_IFBLK, S_IFCHR, S_IFLNK,
     S_IFSOCK, S_IFIFO, S_IFMT, S_IFMT
 };
-
+#endif
 void ff_init_thread0(void);
 //Only used by LD_PRELOAD mode.
 void *ff_adapt_user_thread_add(void *parent);
@@ -150,6 +153,9 @@ void
 ff_init_thread0(void)
 {
     pcurthread = &thread0;
+#ifdef FF_FILESYSTEM
+    curproc = &proc0;
+#endif
 }
 
 int
@@ -193,11 +199,13 @@ p_candebug(struct thread *td, struct proc *p)
     return (0);
 }
 
+#ifndef FF_FILESYSTEM
 const char *
 devtoname(struct cdev *dev)
 {
     return (NULL);
 }
+#endif
 
 #ifdef RACCT
 uint64_t
@@ -207,12 +215,14 @@ racct_get_limit(struct proc *p, int resource)
 }
 #endif
 
+#ifndef FF_FILESYSTEM
 int
 kern_openat(struct thread *td, int fd, const char *path, enum uio_seg pathseg,
     int flags, int mode)
 {
     return (-1);
 }
+#endif
 
 /* Process one elf relocation with addend. */
 static int

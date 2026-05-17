@@ -787,7 +787,9 @@ parse_mount(char **conf)
 		ma = mount_arg(ma, "fspath", "/", -1);
 		ma = mount_arg(ma, "from", dev, -1);
 		ma = mount_arg(ma, "errmsg", errmsg, ERRMSGL);
+#ifndef FSTACK
 		ma = mount_arg(ma, "ro", NULL, 0);
+#endif
 		ma = parse_mountroot_options(ma, opts);
 
 		error = kernel_mount(ma, MNT_ROOTFS);
@@ -882,8 +884,10 @@ retry:
 	case A_RETRY:
 		goto retry;
 	case A_REBOOT:
+#ifndef FSTACK
 		kern_reboot(RB_NOSYNC);
 		/* NOTREACHED */
+#endif
 	}
 
 	return (error);

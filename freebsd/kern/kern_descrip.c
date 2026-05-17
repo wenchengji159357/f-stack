@@ -2516,6 +2516,7 @@ retry:
 		free(fdtol, M_FILEDESC_TO_LEADER);
 }
 
+#ifdef FSTACK
 /*
  * Release a filedesc structure, we use this.
  */
@@ -2591,6 +2592,7 @@ fdescfree_adapt_use(struct thread *td)
 	p->p_fd = NULL;
 	PROC_UNLOCK(p);
 }
+#endif
 
 /*
  * Release a filedesc structure.

@@ -73,6 +73,14 @@ __FBSDID("$FreeBSD$");
 #include <sys/conf.h>
 #include <sys/cpuset.h>
 #include <sys/eventhandler.h>
+#ifdef FF_FILESYSTEM
+#include <sys/buf.h>
+#include <sys/rwlock.h>
+#include <vm/vm_object.h>
+#include <vm/vm_page.h>
+#include <vm/vm_pager.h>
+#include <sys/systm.h>
+#endif
 
 #include <machine/cpu.h>
 
@@ -98,6 +106,18 @@ struct prison prison0;
 struct thread0_storage thread0_st __aligned(16);
 struct vmspace vmspace0;
 struct proc *initproc;
+#ifdef FF_FILESYSTEM
+struct kva_md_info kmi;
+
+extern void ff_vm_ksubmap_init(void);
+
+#ifndef BOOTHOWTO
+#define	BOOTHOWTO	0
+#endif
+int	boothowto = BOOTHOWTO;	/* initialized so that it can be patched */
+SYSCTL_INT(_debug, OID_AUTO, boothowto, CTLFLAG_RD, &boothowto, 0,
+    "Boot control flags, passed from loader");
+#endif
 #if 0
 int    boothowto = 0;        /* initialized so that it can be patched */
 SYSCTL_INT(_debug, OID_AUTO, boothowto, CTLFLAG_RD, &boothowto, 0, "");
@@ -329,6 +349,20 @@ struct sysentvec null_sysvec = {
 
 };
 
+static void
+cpu_startup(void *dummy __unused)
+{
+    init_param1();
+    init_param2(physmem);
+#ifdef FF_FILESYSTEM
+    vm_ksubmap_init(&kmi);
+    bufinit();
+    vm_pager_bufferinit();
+#endif
+}
+
+SYSINIT(cpu, SI_SUB_CPU, SI_ORDER_FIRST, cpu_startup, NULL);
+
 /*
  ***************************************************************************
  ****
@@ -356,8 +390,7 @@ proc0_init(void *dummy __unused)
 
     p = &proc0;
     td = &thread0;
-    init_param1();
-    init_param2(physmem);
+
 
     /*
      * Initialize magic number and osrel.
@@ -466,6 +499,10 @@ proc0_init(void *dummy __unused)
 
     /* Create the file descriptor table. */
     p->p_fd = fdinit(NULL, false, NULL);
+#ifdef FF_FILESYSTEM
+    p->p_pd = pdinit(NULL, false);
+#endif
+
     p->p_fdtol = NULL;
 
 

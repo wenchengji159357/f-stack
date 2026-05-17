@@ -113,9 +113,15 @@ struct vop_vector default_vnodeops = {
 	.vop_access =		vop_stdaccess,
 	.vop_accessx =		vop_stdaccessx,
 	.vop_advise =		vop_stdadvise,
+#ifndef FSTACK
 	.vop_advlock =		vop_stdadvlock,
 	.vop_advlockasync =	vop_stdadvlockasync,
 	.vop_advlockpurge =	vop_stdadvlockpurge,
+#else
+    .vop_advlock =		VOP_NULL,
+	.vop_advlockasync =	VOP_NULL,
+	.vop_advlockpurge =	VOP_NULL,
+#endif
 	.vop_allocate =		vop_stdallocate,
 	.vop_bmap =		vop_stdbmap,
 	.vop_close =		VOP_NULL,
@@ -415,7 +421,7 @@ vop_stdaccessx(struct vop_accessx_args *ap)
 
 	return (VOP_ACCESS(ap->a_vp, accmode, ap->a_cred, ap->a_td));
 }
-
+#ifndef FSTACK
 /*
  * Advisory record locking support
  */
@@ -475,7 +481,7 @@ vop_stdadvlockpurge(struct vop_advlockpurge_args *ap)
 	lf_purgelocks(vp, &vp->v_lockf);
 	return (0);
 }
-
+#endif
 /*
  * vop_stdpathconf:
  *
@@ -1123,6 +1129,7 @@ vop_stdadvise(struct vop_advise_args *ap)
 		 * remain wired until their corresponding buffers are released
 		 * below.
 		 */
+#ifndef FSTACK
 		if (vp->v_object != NULL) {
 			start = trunc_page(bstart);
 			end = round_page(bend);
@@ -1131,7 +1138,7 @@ vop_stdadvise(struct vop_advise_args *ap)
 			    OFF_TO_IDX(end));
 			VM_OBJECT_RUNLOCK(vp->v_object);
 		}
-
+#endif
 		bo = &vp->v_bufobj;
 		BO_RLOCK(bo);
 		startn = bstart / bsize;

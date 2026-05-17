@@ -1792,7 +1792,10 @@ linker_lookup_file(const char *path, int pathlen, const char *name,
 	}
 	extlen++;		/* trailing '\0' */
 	sep = (path[pathlen - 1] != '/') ? "/" : "";
-
+#ifdef FSTACK
+	if (path == NULL || pathlen <= 0 || name == NULL || namelen < 0)
+		return (NULL);
+#endif
 	reclen = pathlen + strlen(sep) + namelen + extlen + 1;
 	result = malloc(reclen, M_LINKER, M_WAITOK);
 	for (cpp = linker_ext_list; *cpp; cpp++) {

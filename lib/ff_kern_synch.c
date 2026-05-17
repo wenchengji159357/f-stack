@@ -58,6 +58,11 @@ __FBSDID("$FreeBSD$");
 int hogticks;
 static uint8_t pause_wchan[MAXCPU];
 
+#ifdef FF_FILESYSTEM
+struct loadavg averunnable =
+    { {0, 0, 0}, FSCALE };	/* load average, of runnable procs */
+#endif
+
 typedef struct sleep_entry {
     LIST_ENTRY(sleep_entry) list_entry;
     void *chan;

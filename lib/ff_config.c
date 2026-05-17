@@ -33,7 +33,9 @@
 #include <arpa/inet.h>
 #include <rte_config.h>
 #include <rte_string_fns.h>
-
+#ifdef FF_FILESYSTEM
+#include "spdk/env.h"
+#endif
 #include "ff_config.h"
 #include "ff_ini_parser.h"
 #include "ff_log.h"
@@ -45,7 +47,9 @@
 struct ff_config ff_global_cfg;
 int dpdk_argc;
 char *dpdk_argv[DPDK_CONFIG_NUM + 1];
-
+#ifdef FF_FILESYSTEM
+struct spdk_env_opts ff_spdk_opts;
+#endif
 char* const short_options = "c:t:p:";
 struct option long_options[] = {
     { "conf", 1, NULL, 'c'},
@@ -1047,23 +1051,47 @@ static int
 dpdk_args_setup(struct ff_config *cfg)
 {
     int n = 0, i;
+#ifdef FF_FILESYSTEM
+	int len = 0;
+	ff_spdk_opts.opts_size = sizeof(ff_spdk_opts);
+    spdk_env_opts_init(&ff_spdk_opts);
+    ff_spdk_opts.shm_id = 1;
+    ff_spdk_opts.name = strdup("f-stack");
+#else
     dpdk_argv[n++] = strdup("f-stack");
+#endif
     char temp[DPDK_CONFIG_MAXLEN] = {0}, temp2[DPDK_CONFIG_MAXLEN] = {0};
 
     if (cfg->dpdk.no_huge) {
+#ifdef FF_FILESYSTEM
+		ff_spdk_opts.no_huge = cfg->dpdk.no_huge;
+#else
         dpdk_argv[n++] = strdup("--no-huge");
+#endif
     }
     if (cfg->dpdk.proc_mask) {
+#ifdef FF_FILESYSTEM
+		ff_spdk_opts.core_mask = cfg->dpdk.proc_mask;
+#else
         sprintf(temp, "-c%s", cfg->dpdk.proc_mask);
         dpdk_argv[n++] = strdup(temp);
+#endif
     }
     if (cfg->dpdk.nb_channel) {
+#ifdef FF_FILESYSTEM
+	    ff_spdk_opts.mem_channel = cfg->dpdk.nb_channel;
+#else
         sprintf(temp, "-n%d", cfg->dpdk.nb_channel);
         dpdk_argv[n++] = strdup(temp);
+#endif
     }
     if (cfg->dpdk.memory) {
+#ifdef FF_FILESYSTEM
+		ff_spdk_opts.mem_size = cfg->dpdk.memory;
+#else
         sprintf(temp, "-m%d", cfg->dpdk.memory);
         dpdk_argv[n++] = strdup(temp);
+#endif
     }
     if (cfg->dpdk.log_level) {
         sprintf(temp, "--log-level=%d", cfg->dpdk.log_level);
@@ -1074,21 +1102,37 @@ dpdk_args_setup(struct ff_config *cfg)
         dpdk_argv[n++] = strdup(temp);
     }
     if (cfg->dpdk.base_virtaddr) {
+#ifdef FF_FILESYSTEM
+        ff_spdk_opts.base_virtaddr = atol(cfg->dpdk.base_virtaddr);
+#else
         sprintf(temp, "--base-virtaddr=%s", cfg->dpdk.base_virtaddr);
         dpdk_argv[n++] = strdup(temp);
+#endif
     }
+#ifndef FF_FILESYSTEM
     if (cfg->dpdk.file_prefix) {
         sprintf(temp, "--file-prefix=container-%s", cfg->dpdk.file_prefix);
         dpdk_argv[n++] = strdup(temp);
     }
+#endif
+	
     if (cfg->dpdk.allow) {
         char* token;
         char* rest = cfg->dpdk.allow;
 
         while ((token = strtok_r(rest, ",", &rest))){
+#ifdef FF_FILESYSTEM
+            ff_spdk_opts.pci_allowed = realloc(ff_spdk_opts.pci_allowed, sizeof(struct spdk_pci_addr) * (i + 1));
+            spdk_pci_addr_parse(ff_spdk_opts.pci_allowed, token);
+            i++;
+#else
             sprintf(temp, "--allow=%s", token);
             dpdk_argv[n++] = strdup(temp);
+#endif
         }
+#ifdef FF_FILESYSTEM
+        ff_spdk_opts.num_pci_addr = i;
+#endif
     }
 
     if (cfg->dpdk.nb_vdev) {
@@ -1118,12 +1162,16 @@ dpdk_args_setup(struct ff_config *cfg)
             }
             dpdk_argv[n++] = strdup(temp);
         }
+#ifdef FF_FILESYSTEM
+		ff_spdk_opts.no_pci = 1;
+#else
         sprintf(temp, "--no-pci");
         dpdk_argv[n++] = strdup(temp);
         if (!cfg->dpdk.file_prefix) {
             sprintf(temp, "--file-prefix=container");
             dpdk_argv[n++] = strdup(temp);
         }
+#endif
     }
 
     if (cfg->dpdk.nb_bond) {
@@ -1182,8 +1230,14 @@ dpdk_args_setup(struct ff_config *cfg)
 
     dpdk_argc = n;
 
-    for (i=0; i<n; i++)
+    for (i=0; i<n; i++) {
         printf("%s ", dpdk_argv[i]);
+#ifdef FF_FILESYSTEM
+        ff_spdk_opts.env_context = realloc(ff_spdk_opts.env_context, len+strlen(dpdk_argv[i])+2);
+        len += sprintf(ff_spdk_opts.env_context+len,"%s ",dpdk_argv[i]);
+#endif
+    }
+
     printf("\n");
 
     return n;

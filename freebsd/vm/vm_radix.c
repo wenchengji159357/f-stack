@@ -193,7 +193,7 @@ vm_radix_trimkey(vm_pindex_t index, uint16_t level)
 	}
 	return (ret);
 }
-
+#pragma GCC diagnostic ignored "-Wcast-qual"
 /*
  * Fetch a node pointer from a slot in another node.
  */
@@ -211,7 +211,7 @@ vm_radix_node_load(smrnode_t *p, enum vm_radix_access access)
 	}
 	__assert_unreachable();
 }
-
+#pragma GCC diagnostic error "-Wcast-qual"
 static __inline void
 vm_radix_node_store(smrnode_t *p, struct vm_radix_node *v,
     enum vm_radix_access access)
@@ -341,6 +341,7 @@ vm_radix_reclaim_allnodes_int(struct vm_radix_node *rnode)
 	vm_radix_node_put(rnode, -1);
 }
 
+#ifndef FSTACK
 #ifndef UMA_MD_SMALL_ALLOC
 void vm_radix_reserve_kva(void);
 /*
@@ -363,6 +364,7 @@ vm_radix_reserve_kva(void)
 	    sizeof(struct vm_radix_node))))
 		panic("%s: unable to reserve KVA", __func__);
 }
+#endif
 #endif
 
 /*
@@ -474,7 +476,11 @@ vm_radix_is_singleton(struct vm_radix *rtree)
  * Returns the value stored at the index.  If the index is not present,
  * NULL is returned.
  */
+#ifndef FSTACK
 static __always_inline vm_page_t
+#else
+static vm_page_t
+#endif
 _vm_radix_lookup(struct vm_radix *rtree, vm_pindex_t index,
     enum vm_radix_access access)
 {

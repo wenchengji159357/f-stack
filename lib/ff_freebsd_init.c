@@ -42,7 +42,11 @@
 #include <vm/uma_int.h>
 #include <vm/vm.h>
 #include <vm/vm_extern.h>
-
+#ifdef FF_FILESYSTEM
+#include <vm/vm_phys.h>
+#include <sys/mount.h>
+#include <sys/vnode.h>
+#endif
 #include "ff_host_interface.h"
 #include "ff_api.h"
 #include "ff_config.h"
@@ -59,8 +63,6 @@ int ff_freebsd_init(void);
 
 extern void mutex_init(void);
 extern void mi_startup(void);
-extern void uma_startup(void *, int);
-extern void uma_startup2(void);
 
 extern void ff_init_thread0(void);
 
@@ -69,8 +71,10 @@ struct pcpu *pcpup;
 struct uma_page_head *uma_page_slab_hash;
 int uma_page_mask;
 extern cpuset_t all_cpus;
-
+#ifndef FF_FILESYSTEM
 long physmem;
+#endif
+vm_offset_t virtual_avail;
 
 extern void uma_startup1(vm_offset_t);
 
@@ -119,14 +123,20 @@ int lo_set_defaultaddr(void)
 
     return ret;
 }
-
+#ifdef FF_FILESYSTEM
+void ff_vm_phys_early_add_seg(uint64_t start, uint64_t end);
+void ff_vm_phys_early_add_seg(uint64_t start, uint64_t end)
+{
+    static int i = 0;
+    phys_avail[i++] = (vm_paddr_t)start;
+    phys_avail[i++] = (vm_paddr_t)end;
+}
+#endif
 int
 ff_freebsd_init(void)
 {
-    int boot_pages;
     unsigned int num_hash_buckets;
     char tmpbuf[32] = {0};
-    void *bootmem;
     int error;
 
     snprintf(tmpbuf, sizeof(tmpbuf), "%u", ff_global_cfg.freebsd.hz);
@@ -155,11 +165,7 @@ ff_freebsd_init(void)
 
     ff_init_thread0();
 
-    boot_pages = 16;
-    bootmem = (void *)kmem_malloc(boot_pages*PAGE_SIZE, M_ZERO);
-    //uma_startup(bootmem, boot_pages);
-    uma_startup1((vm_offset_t)bootmem);
-    uma_startup2();
+    virtual_avail = 0;
 
     num_hash_buckets = 8192;
     uma_page_slab_hash = (struct uma_page_head *)kmem_malloc(sizeof(struct uma_page)*num_hash_buckets, M_ZERO);
@@ -167,6 +173,12 @@ ff_freebsd_init(void)
 
     mutex_init();
     mi_startup();
+
+#ifdef FF_FILESYSTEM
+    vfs_mountroot();
+    pwd_chroot(curthread,rootvnode);
+#endif
+
     sx_init(&proctree_lock, "proctree");
     ff_fdused_range(ff_global_cfg.freebsd.fd_reserve);
 
