@@ -8,8 +8,12 @@ ff_close
 ff_compat
 ff_read
 ff_readv
+ff_pread
+ff_preadv
 ff_write
 ff_writev
+ff_pwrite
+ff_pwritev
 ff_send 
 ff_sendto 
 ff_sendmsg 
@@ -80,3 +84,7 @@ ff_log
 ff_vlog
 ff_log_close
 ff_vm_phys_early_add_seg
+ff_open
+ff_lseek
+ff_fstat
+ff_sendfile

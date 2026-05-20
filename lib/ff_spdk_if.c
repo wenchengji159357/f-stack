@@ -58,12 +58,6 @@ ff_nvme_ns_get_size(void *ns)
 }
 
 uint32_t
-ff_nvme_ns_get_optimal_io_boundary(void *ns)
-{
-    return spdk_nvme_ns_get_optimal_io_boundary((struct spdk_nvme_ns *)ns);
-}
-
-uint32_t
 ff_nvme_ns_get_max_io_xfer_size(void *ns)
 {
     return spdk_nvme_ctrlr_get_max_xfer_size(spdk_nvme_ns_get_ctrlr((struct spdk_nvme_ns *)ns));

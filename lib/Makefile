@@ -84,6 +84,7 @@ KERNPREINCLUDES:= ${INCLUDES}
 INCLUDES= -I${OVERRIDE_INCLUDES_ROOT} ${KERNPREINCLUDES}
 INCLUDES+= -I./machine_include
 INCLUDES+= -I./opt
+INCLUDES+= -I${S}/compat/linux
 
 # Include search path for files that only include host OS headers
 HOST_INCLUDES= -I.
@@ -278,7 +279,6 @@ endif
 VPATH+= $S/opencrypto
 VPATH+= $S/vm
 VPATH+= $S/libkern
-VPATH+= $S/compat/linux
 ifdef FF_FILESYSTEM
 VPATH+= $S/fs/devfs
 VPATH+= $S/fs/ext2fs

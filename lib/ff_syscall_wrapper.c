@@ -55,6 +55,11 @@
 
 #include <net/if.h>
 #include <sys/sockio.h>
+#include <linux/linux.h>
+#include <linux_file.h>
+//#include <linux_socket.h>
+#include <sys/stat.h>
+#include <sys/unistd.h>
 
 #include <machine/stdarg.h>
 
@@ -195,12 +200,6 @@
 #define LINUX_F_OFD_SETLK       37
 #define LINUX_F_OFD_SETLKW      38
 
-#define LINUX_O_APPEND          0x400
-#define LINUX_O_NONBLOCK        0x800
-#define LINUX_O_ASYNC           0x2000
-#define LINUX_O_DIRECT          0x4000
-#define LINUX_O_NOATIME         0x40000
-#define LINUX_O_CLOEXEC         0x80000
 
 /* fcntl define end */
 
@@ -1058,6 +1057,120 @@ kern_fail:
     return (-1);
 }
 
+#ifdef FF_FILESYSTEM
+
+static int
+linux_common_openflags(int l_flags)
+{
+    int bsd_flags;
+
+    bsd_flags = 0;
+    switch (l_flags & LINUX_O_ACCMODE) {
+        case LINUX_O_WRONLY:
+            bsd_flags |= O_WRONLY;
+            break;
+        case LINUX_O_RDWR:
+            bsd_flags |= O_RDWR;
+            break;
+        default:
+            bsd_flags |= O_RDONLY;
+    }
+    if (l_flags & LINUX_O_NDELAY)
+        bsd_flags |= O_NONBLOCK;
+    if (l_flags & LINUX_O_APPEND)
+        bsd_flags |= O_APPEND;
+    if (l_flags & LINUX_O_SYNC)
+        bsd_flags |= O_FSYNC;
+    if (l_flags & LINUX_O_CLOEXEC)
+        bsd_flags |= O_CLOEXEC;
+    if (l_flags & LINUX_O_NONBLOCK)
+        bsd_flags |= O_NONBLOCK;
+    if (l_flags & LINUX_O_ASYNC)
+        bsd_flags |= O_ASYNC;
+    if (l_flags & LINUX_O_CREAT)
+        bsd_flags |= O_CREAT;
+    if (l_flags & LINUX_O_TRUNC)
+        bsd_flags |= O_TRUNC;
+    if (l_flags & LINUX_O_EXCL)
+        bsd_flags |= O_EXCL;
+    if (l_flags & LINUX_O_NOCTTY)
+        bsd_flags |= O_NOCTTY;
+    if (l_flags & LINUX_O_DIRECT)
+        bsd_flags |= O_DIRECT;
+    if (l_flags & LINUX_O_NOFOLLOW)
+        bsd_flags |= O_NOFOLLOW;
+    if (l_flags & LINUX_O_DIRECTORY)
+        bsd_flags |= O_DIRECTORY;
+    /* XXX LINUX_O_NOATIME: unable to be easily implemented. */
+    return (bsd_flags);
+}
+
+static int
+stat_copyout(struct stat *buf, void *ubuf)
+{
+    struct l_newstat lbuf;
+
+    bzero(&lbuf, sizeof(lbuf));
+    lbuf.st_dev = (uint16_t)(buf->st_dev);
+    lbuf.st_ino = buf->st_ino;
+    lbuf.st_mode = buf->st_mode;
+    lbuf.st_nlink = buf->st_nlink;
+    lbuf.st_uid = buf->st_uid;
+    lbuf.st_gid = buf->st_gid;
+    lbuf.st_rdev = buf->st_rdev;
+    lbuf.st_size = MIN(buf->st_size, INT32_MAX);
+    lbuf.st_atim.tv_sec = buf->st_atim.tv_sec;
+    lbuf.st_atim.tv_nsec = buf->st_atim.tv_nsec;
+    lbuf.st_mtim.tv_sec = buf->st_mtim.tv_sec;
+    lbuf.st_mtim.tv_nsec = buf->st_mtim.tv_nsec;
+    lbuf.st_ctim.tv_sec = buf->st_ctim.tv_sec;
+    lbuf.st_ctim.tv_nsec = buf->st_ctim.tv_nsec;
+    lbuf.st_blksize = buf->st_blksize;
+    lbuf.st_blocks = buf->st_blocks;
+
+    return (copyout(&lbuf, ubuf, sizeof(lbuf)));
+}
+
+int
+ff_open(char *path,int flags,int mode)
+{
+    int rc;
+    int bsd_flags;
+
+    bsd_flags = linux_common_openflags(flags);
+
+    if ((rc = kern_openat(curthread, AT_FDCWD, path, UIO_USERSPACE,bsd_flags, mode)))
+        goto kern_fail;
+
+    rc = curthread->td_retval[0];
+
+    return (rc);
+
+kern_fail:
+    ff_os_errno(rc);
+    return (-1);
+}
+
+int
+ff_lseek(int fd, off_t offset, int whence)
+{
+    return (kern_lseek(curthread, fd, offset, whence));
+}
+
+int
+ff_fstat(int fd,struct stat *st)
+{
+    struct stat ub;
+    int error;
+
+    error = kern_fstat(curthread, fd, &ub);
+    if (error == 0)
+        error = stat_copyout(&ub,st);
+
+    return (error);
+}
+#endif
+
 int
 ff_close(int fd)
 {
@@ -1124,6 +1237,59 @@ kern_fail:
     return (-1);
 }
 
+#ifdef FF_FILESYSTEM
+ssize_t
+ff_pread(int fd, void *buf, size_t nbytes,off_t offset)
+{
+    struct uio auio;
+    struct iovec aiov;
+    int rc;
+
+    if (nbytes > INT_MAX) {
+        rc = EINVAL;
+        goto kern_fail;
+    }
+
+    aiov.iov_base = buf;
+    aiov.iov_len = nbytes;
+    auio.uio_iov = &aiov;
+    auio.uio_iovcnt = 1;
+    auio.uio_resid = nbytes;
+    auio.uio_segflg = UIO_SYSSPACE;
+    if ((rc = kern_preadv(curthread, fd, &auio,offset)))
+        goto kern_fail;
+    rc = curthread->td_retval[0];
+
+    return (rc);
+kern_fail:
+    ff_os_errno(rc);
+    return (-1);
+}
+
+ssize_t
+ff_preadv(int fd, const struct iovec *iov, int iovcnt,off_t offset)
+{
+    struct uio auio;
+    int rc, len, i;
+
+    len = 0;
+    for (i = 0; i < iovcnt; i++)
+        len += iov[i].iov_len;
+    auio.uio_iov = __DECONST(struct iovec *, iov);
+    auio.uio_iovcnt = iovcnt;
+    auio.uio_resid = len;
+    auio.uio_segflg = UIO_SYSSPACE;
+
+    if ((rc = kern_preadv(curthread, fd, &auio, offset)))
+        goto kern_fail;
+    rc = curthread->td_retval[0];
+
+    return (rc);
+kern_fail:
+    ff_os_errno(rc);
+    return (-1);
+}
+#endif
 ssize_t
 ff_write(int fd, const void *buf, size_t nbytes)
 {
@@ -1174,6 +1340,60 @@ kern_fail:
     ff_os_errno(rc);
     return (-1);
 }
+
+#ifdef FF_FILESYSTEM
+ssize_t
+ff_pwrite(int fd, void *buf, size_t nbytes,off_t offset)
+{
+    struct uio auio;
+    struct iovec aiov;
+    int rc;
+
+    if (nbytes > INT_MAX) {
+        rc = EINVAL;
+        goto kern_fail;
+    }
+
+    aiov.iov_base = (void *)(uintptr_t)buf;
+    aiov.iov_len = nbytes;
+    auio.uio_iov = &aiov;
+    auio.uio_iovcnt = 1;
+    auio.uio_resid = nbytes;
+    auio.uio_segflg = UIO_SYSSPACE;
+    if ((rc = kern_pwritev(curthread, fd, &auio, offset)))
+        goto kern_fail;
+    rc = curthread->td_retval[0];
+
+    return (rc);
+    kern_fail:
+        ff_os_errno(rc);
+    return (-1);
+}
+
+ssize_t
+ff_pwritev(int fd, const struct iovec *iov, int iovcnt,off_t offset)
+{
+    struct uio auio;
+    int rc, len, i;
+
+    len = 0;
+    for (i = 0; i < iovcnt; i++)
+        len += iov[i].iov_len;
+    auio.uio_iov = __DECONST(struct iovec *, iov);
+    auio.uio_iovcnt = iovcnt;
+    auio.uio_resid = len;
+    auio.uio_segflg = UIO_SYSSPACE;
+
+    if ((rc = kern_pwritev(curthread, fd, &auio, offset)))
+        goto kern_fail;
+    rc = curthread->td_retval[0];
+
+    return (rc);
+kern_fail:
+    ff_os_errno(rc);
+    return (-1);
+}
+#endif
 
 ssize_t
 ff_send(int s, const void *buf, size_t len, int flags)
@@ -1330,6 +1550,58 @@ kern_fail:
     ff_os_errno(rc);
     return (-1);
 }
+
+#ifdef FF_FILESYSTEM
+int
+ff_sendfile(int s, int fd,off_t *offset, size_t nbytes)
+{
+    off_t bytes_read;
+    int error;
+    off_t current_offset;
+    struct file *fp;
+
+    error = fget_read(curthread, fd, &cap_pread_rights, &fp);
+    if (error != 0)
+        return (error);
+
+    if (offset != NULL) {
+        current_offset = *offset;
+    } else {
+        error = (fp->f_ops->fo_flags & DFLAG_SEEKABLE) != 0 ?
+            fo_seek(fp, 0, SEEK_CUR, curthread) : ESPIPE;
+        if (error != 0)
+            goto drop;
+        current_offset = curthread->td_uretoff.tdu_off;
+    }
+
+    bytes_read = 0;
+
+    /* Linux cannot have 0 count. */
+    if (nbytes <= 0 || current_offset < 0) {
+        error = EINVAL;
+        goto drop;
+    }
+
+    error = fo_sendfile(fp, s, NULL, NULL, current_offset, nbytes,
+        &bytes_read, 0, curthread);
+    if (error != 0)
+        goto drop;
+    current_offset += bytes_read;
+
+    if (offset != NULL) {
+        *offset = current_offset;
+    } else {
+        error = fo_seek(fp, current_offset, SEEK_SET, curthread);
+        if (error != 0)
+            goto drop;
+    }
+
+    curthread->td_retval[0] = (ssize_t)bytes_read;
+drop:
+    fdrop(fp, curthread);
+    return (error);
+}
+#endif
 
 int
 ff_fcntl(int fd, int cmd, ...)

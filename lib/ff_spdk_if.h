@@ -19,8 +19,6 @@ uint64_t ff_nvme_ns_get_num_sectors(void *ns);
 
 uint64_t ff_nvme_ns_get_size(void *ns);
 
-uint32_t ff_nvme_ns_get_optimal_io_boundary(void *ns);
-
 uint32_t ff_nvme_ns_get_max_io_xfer_size(void *ns);
 
 const char *ff_nvme_ns_get_serial_number(void *ns);

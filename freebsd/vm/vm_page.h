@@ -226,11 +226,6 @@ typedef union vm_page_astate {
 	uint32_t _bits;
 } vm_page_astate_t;
 
-#ifdef FSTACK
-struct vm_phys_addr {
-	void *addr;
-};
-#endif
 
 struct vm_page {
 	union {

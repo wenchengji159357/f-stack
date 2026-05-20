@@ -190,7 +190,7 @@ nvd_unload()
 
 	mtx_destroy(&nvd_lock);
 }
-
+extern void debug_printf(const char *format, ...);
 static void
 nvd_bio_submit(struct nvd_disk *ndisk, struct bio *bp)
 {
@@ -209,19 +209,10 @@ nvd_bio_submit(struct nvd_disk *ndisk, struct bio *bp)
 	else
 		atomic_add_int(&ndisk->cur_depth, 1);
 
-
-	/*if ((ff_nvme_ns_get_optimal_io_boundary(ns)) > 0 &&
-		  (bio_cmd == BIO_READ || bio_cmd == BIO_WRITE)) {
-		num_bios = nvme_get_num_segments(bp->bio_offset,
-			bp->bio_bcount, ns->boundary);
-		if (num_bios > 1)
-			return (nvme_ns_split_bio(ns, bp, ns->boundary));
-	}*/
 	if (bp->bio_flags & BIO_UNMAPPED) {
 		ma = bp->bio_ma;
 		for (i = 0; i < bp->bio_ma_n; i++) {
-			//paddr = VM_PAGE_TO_PHYS(ma[i]);
-			paddr = (vm_offset_t)(((struct vm_phys_addr *)(VM_PAGE_TO_PHYS(ma[i])))->addr);
+			paddr = VM_PAGE_TO_PHYS(ma[i]);
 			err = ff_nvme_ns_bio_process(ndisk->ns,bp->bio_cmd,(void *)paddr,lba,lba_count,nvd_done,bp);
 			if (err != 0)
 				break;
@@ -230,7 +221,6 @@ nvd_bio_submit(struct nvd_disk *ndisk, struct bio *bp)
 		err = ff_nvme_ns_bio_process(ndisk->ns,bp->bio_cmd,bp->bio_data,lba,lba_count,nvd_done,bp);
 	}
 
-	//err = ff_nvme_ns_bio_process(ndisk->ns,bp->bio_cmd,bp->bio_data,lba,lba_count,nvd_done,bp);
 	if (err) {
 		if (__predict_false(bp->bio_flags & BIO_ORDERED)) {
 			atomic_add_int(&ndisk->cur_depth, -NVD_ODEPTH);
