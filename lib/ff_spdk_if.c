@@ -3,6 +3,7 @@
 //
 
 #include <stdint.h>
+#include <rte_memzone.h>
 #include "ff_spdk_if.h"
 
 #include "spdk/stdinc.h"
@@ -13,6 +14,10 @@
 #include "spdk/env.h"
 #include "spdk/string.h"
 #include "spdk/log.h"
+
+#include "ff_config.h"
+
+extern void ff_vm_phys_early_add_seg(uint64_t start, uint64_t end);
 
 struct nvme_consumer {
     ff_nvme_cons_ns_fn_t	ns_fn;
@@ -243,14 +248,14 @@ attach_cb(void *cb_ctx, const struct spdk_nvme_transport_id *trid,
      *
      * Note that in NVMe, namespace IDs start at 1, not 0.
      */
-    for (nsid = spdk_nvme_ctrlr_get_first_active_ns(ctrlr); nsid != 0;
-         nsid = spdk_nvme_ctrlr_get_next_active_ns(ctrlr, nsid)) {
-        ns = spdk_nvme_ctrlr_get_ns(ctrlr, nsid);
-        if (ns == NULL) {
-            continue;
-        }
-        nvme_notify(cb_ctx, ns);
+    nsid = ff_global_cfg.dpdk.proc_id + 1;
+
+    ns = spdk_nvme_ctrlr_get_ns(ctrlr, nsid);
+    if (ns == NULL) {
+        return;
     }
+    nvme_notify(cb_ctx, ns);
+
 }
 
 struct nvme_consumer *
@@ -292,4 +297,29 @@ void
 ff_vmem_free(void *addr)
 {
     spdk_free(addr);
+}
+
+int ff_spdk_init(struct spdk_env_opts *opts)
+{
+    int ret = 0;
+    char zone_name[RTE_MEMZONE_NAMESIZE];
+    const struct rte_memzone *mz;
+
+    ret = spdk_env_init(opts);
+    if (ret < 0) {
+        rte_exit(EXIT_FAILURE, "Error with SPDK initialization\n");
+    }
+
+    if (spdk_vmd_init()) {
+        fprintf(stderr, "Failed to initialize VMD."
+            " Some NVMe devices can be unavailable.\n");
+    }
+
+    snprintf(zone_name, sizeof(zone_name), "ff_filesystem_%d", ff_global_cfg.dpdk.proc_id);
+    mz = rte_memzone_reserve(zone_name,4096*50,rte_socket_id(),0);
+    if (!mz)
+        rte_exit(EXIT_FAILURE, "Error with %s rte_memzone_reserve\n",zone_name);
+    ff_vm_phys_early_add_seg((uint64_t)mz->addr, (uint64_t)mz->addr+mz->len);
+
+    return ret;
 }

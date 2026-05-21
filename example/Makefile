@@ -12,7 +12,7 @@ LIBS+= $(shell $(PKGCONF) --static --libs libfstack)
 TARGET="helloworld"
 all:
 	cc ${CFLAGS} -DINET6 -o ${TARGET} main.c ${LIBS}
-	cc ${CFLAGS} -DFF_FILESYSTEM -o ${TARGET}_file main_file.c ${LIBS}
+	cc ${CFLAGS} -o ${TARGET}_file main_file.c ${LIBS}
 	cc ${CFLAGS} -o ${TARGET}_epoll main_epoll.c ${LIBS}
 
 .PHONY: clean

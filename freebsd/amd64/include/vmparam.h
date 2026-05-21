@@ -240,9 +240,6 @@
  */
 #define	PMAP_HAS_PAGE_ARRAY	1
 
-#ifdef FF_FILESYSTEM
-#define VM_PHYSSEG_SPARSE
-#endif
 /*
  * How many physical pages per kmem arena virtual page.
  */

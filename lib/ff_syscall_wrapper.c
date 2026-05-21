@@ -1169,6 +1169,21 @@ ff_fstat(int fd,struct stat *st)
 
     return (error);
 }
+#else
+int ff_open(char *path,int flags,int mode)
+{
+    return -1;
+}
+
+int ff_lseek(int fd, off_t offset, int whence)
+{
+    return -1;
+}
+
+int ff_fstat(int fd,struct stat *st)
+{
+    return -1;
+}
 #endif
 
 int
@@ -1289,6 +1304,16 @@ kern_fail:
     ff_os_errno(rc);
     return (-1);
 }
+#else
+ssize_t ff_pread(int fd, void *buf, size_t nbytes,off_t offset)
+{
+    return -1;
+}
+
+ssize_t ff_preadv(int fd, const struct iovec *iov, int iovcnt,off_t offset)
+{
+    return -1;
+}
 #endif
 ssize_t
 ff_write(int fd, const void *buf, size_t nbytes)
@@ -1392,6 +1417,16 @@ ff_pwritev(int fd, const struct iovec *iov, int iovcnt,off_t offset)
 kern_fail:
     ff_os_errno(rc);
     return (-1);
+}
+#else
+ssize_t ff_pwrite(int fd, void *buf, size_t nbytes,off_t offset)
+{
+    return -1;
+}
+
+ssize_t ff_pwritev(int fd, const struct iovec *iov, int iovcnt,off_t offset)
+{
+    return -1;
 }
 #endif
 
@@ -1601,6 +1636,13 @@ drop:
     fdrop(fp, curthread);
     return (error);
 }
+#else
+int
+ff_sendfile(int s, int fd,off_t *offset, size_t nbytes)
+{
+    return -1;
+}
+
 #endif
 
 int
