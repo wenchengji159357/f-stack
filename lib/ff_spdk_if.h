@@ -5,8 +5,6 @@
 #ifndef _FSTACK_SPDK_IF_H
 #define _FSTACK_SPDK_IF_H
 
-#include "spdk/env.h"
-
 typedef void (*ff_done_fn_t)(void *);
 typedef void *(*ff_nvme_cons_ns_fn_t)(void *, void *);
 typedef void *(*ff_nvme_cons_ctrlr_fn_t)(void *);
@@ -55,6 +53,6 @@ void *ff_vmem_alloc(uint64_t size);
 
 void ff_vmem_free(void *addr);
 
-int ff_spdk_init(struct spdk_env_opts *opts);
+int ff_spdk_init(void);
 
 #endif //F_STACK_FF_SPDK_IF_H

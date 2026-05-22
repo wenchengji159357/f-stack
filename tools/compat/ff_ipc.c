@@ -67,6 +67,9 @@ ff_ipc_init(void)
         "--proc-type=secondary",
         /* RTE_LOG_WARNING */
         "--log-level=5",
+#ifdef FF_FILESYSTEM
+        "--file-prefix=spdk1",
+#endif
     };
 
     int ret = rte_eal_init(sizeof(dpdk_argv)/sizeof(dpdk_argv[0]), dpdk_argv);

@@ -1371,7 +1371,7 @@ ff_dpdk_init(int argc, char **argv)
     }
 
 #ifdef FF_FILESYSTEM
-    int ret = ff_spdk_init(&ff_spdk_opts);
+    int ret = ff_spdk_init();
 #else
     int ret = rte_eal_init(argc, argv);
 #endif

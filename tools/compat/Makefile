@@ -15,7 +15,7 @@ endif
 
 PKGCONF ?= pkg-config
 
-DPDK_CFLAGS= -g -Wall -Werror -Wno-deprecated-declarations $(shell $(PKGCONF) --cflags libdpdk)
+DPDK_CFLAGS= -g -Wall -Werror -Wno-deprecated-declarations $(shell $(PKGCONF) --cflags libdpdk) -DFF_FILESYSTEM
 
 CFLAGS+= ${DPDK_CFLAGS} -I${CURDIR}/include
 CFLAGS+= -I${TOPDIR}/lib -D__BSD_VISIBLE -DFSTACK

@@ -299,13 +299,13 @@ ff_vmem_free(void *addr)
     spdk_free(addr);
 }
 
-int ff_spdk_init(struct spdk_env_opts *opts)
+int ff_spdk_init(void)
 {
     int ret = 0;
     char zone_name[RTE_MEMZONE_NAMESIZE];
     const struct rte_memzone *mz;
 
-    ret = spdk_env_init(opts);
+    ret = spdk_env_init(&ff_spdk_opts);
     if (ret < 0) {
         rte_exit(EXIT_FAILURE, "Error with SPDK initialization\n");
     }
