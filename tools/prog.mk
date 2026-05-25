@@ -54,7 +54,7 @@ FF_PROG_CFLAGS+= -I${TOPDIR}/tools/libxo
 
 FF_PROG_LIBS:= -L${TOPDIR}/tools/compat -Wl,--whole-archive,-lffcompat,--no-whole-archive
 FF_PROG_LIBS+= $(shell $(PKGCONF) --static --libs libdpdk-libs)
-FF_PROG_LIBS+= -Wl,--no-whole-archive -lrt -lm -ldl -lcrypto -lpthread -lnuma
+FF_PROG_LIBS+= -Wl,--no-whole-archive -lcrypto
 
 CFLAGS+= -Wno-unused-but-set-variable -Wno-unused-variable
 CFLAGS+= ${FF_PROG_CFLAGS}

@@ -92,7 +92,8 @@ int ff_accept(int s, struct linux_sockaddr *addr, socklen_t *addrlen);
 int ff_accept4(int s, struct linux_sockaddr *addr, socklen_t *addrlen, int flags);
 int ff_connect(int s, const struct linux_sockaddr *name, socklen_t namelen);
 int ff_open(char *path,int flags,int mode);
-int ff_lseek(int fd, off_t offset, int whence);
+off_t ff_lseek(int fd, off_t offset, int whence);
+int ff_access(char *path,int mode);
 int ff_fstat(int fd,struct stat *st);
 int ff_close(int fd);
 int ff_shutdown(int s, int how);
@@ -104,8 +105,8 @@ int ff_getsockname(int s, struct linux_sockaddr *name,
 
 ssize_t ff_read(int d, void *buf, size_t nbytes);
 ssize_t ff_readv(int fd, const struct iovec *iov, int iovcnt);
-ssize_t ff_pread(int fd, void *buf, size_t nbytes,off_t offset);
-ssize_t ff_preadv(int fd, const struct iovec *iov, int iovcnt,off_t offset);
+ssize_t ff_pread(int fd, void *buf, size_t nbytes, off_t offset);
+ssize_t ff_preadv(int fd, const struct iovec *iov, int iovcnt, off_t offset);
 
 /*
  * Write data to the socket sendspace buf.
@@ -123,8 +124,8 @@ ssize_t ff_preadv(int fd, const struct iovec *iov, int iovcnt,off_t offset);
  */
 ssize_t ff_write(int fd, const void *buf, size_t nbytes);
 ssize_t ff_writev(int fd, const struct iovec *iov, int iovcnt);
-ssize_t ff_pwrite(int fd, void *buf, size_t nbytes,off_t offset);
-ssize_t ff_pwritev(int fd, const struct iovec *iov, int iovcnt,off_t offset);
+ssize_t ff_pwrite(int fd, void *buf, size_t nbytes, off_t offset);
+ssize_t ff_pwritev(int fd, const struct iovec *iov, int iovcnt, off_t offset);
 
 ssize_t ff_send(int s, const void *buf, size_t len, int flags);
 ssize_t ff_sendto(int s, const void *buf, size_t len, int flags,
