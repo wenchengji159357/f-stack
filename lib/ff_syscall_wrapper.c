@@ -1151,10 +1151,16 @@ kern_fail:
     return (-1);
 }
 
-int
+off_t
 ff_lseek(int fd, off_t offset, int whence)
 {
     return (kern_lseek(curthread, fd, offset, whence));
+}
+
+int
+ff_access(char *path,int mode)
+{
+    return (kern_accessat(curthread, AT_FDCWD, path, UIO_USERSPACE, 0, mode));
 }
 
 int
@@ -1170,17 +1176,26 @@ ff_fstat(int fd,struct stat *st)
     return (error);
 }
 #else
-int ff_open(char *path,int flags,int mode)
+int
+ff_open(char *path,int flags,int mode)
 {
     return -1;
 }
 
-int ff_lseek(int fd, off_t offset, int whence)
+off_t
+ff_lseek(int fd, off_t offset, int whence)
 {
     return -1;
 }
 
-int ff_fstat(int fd,struct stat *st)
+int
+ff_access(char *path,int mode)
+{
+    return -1;
+}
+
+int
+ff_fstat(int fd,struct stat *st)
 {
     return -1;
 }
