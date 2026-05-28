@@ -342,7 +342,11 @@ init_mem_pool(void)
     uint32_t nb_tx_queue = nb_lcores;
     uint32_t nb_rx_queue = lcore_conf.nb_rx_queue * nb_lcores;
     uint16_t max_portid = ff_global_cfg.dpdk.max_portid;
-
+#ifdef FF_USE_PAGE_ARRAY
+    uint16_t priv_size = sizeof(struct rte_mbuf_ext_shared_info);
+#else
+    uint16_t priv_size = 0;
+#endif
     unsigned nb_mbuf = RTE_ALIGN_CEIL (
         (nb_rx_queue * (max_portid + 1) * 2 * RX_QUEUE_SIZE          +
         nb_ports * (max_portid + 1) * 2 * nb_lcores * MAX_PKT_BURST    +
@@ -378,7 +382,7 @@ init_mem_pool(void)
             snprintf(s, sizeof(s), "mbuf_pool_%d", socketid);
             pktmbuf_pool[socketid] =
                 rte_pktmbuf_pool_create(s, nb_mbuf,
-                    MEMPOOL_CACHE_SIZE, 0,
+                    MEMPOOL_CACHE_SIZE, priv_size,
                     RTE_MBUF_DEFAULT_BUF_SIZE, socketid);
         } else {
             snprintf(s, sizeof(s), "mbuf_pool_%d", socketid);
@@ -390,15 +394,6 @@ init_mem_pool(void)
         } else {
             ff_log(FF_LOG_INFO, FF_LOGTYPE_FSTACK_LIB, "create mbuf pool on socket %d\n", socketid);
         }
-
-#ifdef FF_USE_PAGE_ARRAY
-        nb_mbuf = RTE_ALIGN_CEIL (
-            nb_ports*nb_lcores*MAX_PKT_BURST    +
-            nb_ports*nb_tx_queue*TX_QUEUE_SIZE  +
-            nb_lcores*MEMPOOL_CACHE_SIZE,
-            (unsigned)4096);
-        ff_init_ref_pool(nb_mbuf, socketid);
-#endif
     }
 
     return 0;
@@ -2067,19 +2062,11 @@ send_burst(struct lcore_conf *qconf, uint16_t n, uint8_t port)
     for (i = 0; i < ret; i++) {
         ff_traffic.tx_packets += m_table[i]->nb_segs; // use ret or rets' nb_segs?
         ff_traffic.tx_bytes += rte_pktmbuf_pkt_len(m_table[i]);
-#ifdef FF_USE_PAGE_ARRAY
-        if (qconf->tx_mbufs[port].bsd_m_table[i])
-            ff_enq_tx_bsdmbuf(port, qconf->tx_mbufs[port].bsd_m_table[i], m_table[i]->nb_segs);
-#endif
     }
     if (unlikely(ret < n)) {
         do {
             ff_traffic.tx_dropped += m_table[ret]->nb_segs;
             rte_pktmbuf_free(m_table[ret]);
-#ifdef FF_USE_PAGE_ARRAY
-            if ( qconf->tx_mbufs[port].bsd_m_table[ret] )
-                ff_mbuf_free(qconf->tx_mbufs[port].bsd_m_table[ret]);
-#endif
         } while (++ret < n);
     }
     return 0;
@@ -2111,20 +2098,9 @@ int
 ff_dpdk_if_send(struct ff_dpdk_if_context *ctx, void *m,
     int total)
 {
-#ifdef FF_USE_PAGE_ARRAY
-    struct lcore_conf *qconf = &lcore_conf;
-    int    len = 0;
-
-    len = ff_if_send_onepkt(ctx, m,total);
-    if (unlikely(len == MAX_PKT_BURST)) {
-        send_burst(qconf, MAX_PKT_BURST, ctx->port_id);
-        len = 0;
-    }
-    qconf->tx_mbufs[ctx->port_id].len = len;
-    return 0;
-#endif
     struct rte_mempool *mbuf_pool = pktmbuf_pool[lcore_conf.socket_id];
     struct rte_mbuf *head = rte_pktmbuf_alloc(mbuf_pool);
+    void *m_bsd = m;
     if (head == NULL) {
         ff_traffic.tx_dropped++;
         ff_mbuf_free(m);
@@ -2153,6 +2129,7 @@ ff_dpdk_if_send(struct ff_dpdk_if_context *ctx, void *m,
         head->nb_segs++;
 
         prev = cur;
+#ifndef FF_USE_PAGE_ARRAY
         void *data = rte_pktmbuf_mtod(cur, void*);
         int len = total > RTE_MBUF_DEFAULT_DATAROOM ? RTE_MBUF_DEFAULT_DATAROOM : total;
         int ret = ff_mbuf_copydata(m, data, off, len);
@@ -2162,8 +2139,9 @@ ff_dpdk_if_send(struct ff_dpdk_if_context *ctx, void *m,
             ff_mbuf_free(m);
             return -1;
         }
-
-
+#else
+        int len = ff_bsd_to_rte(&m,cur);
+#endif
         cur->data_len = len;
         off += len;
         total -= len;
@@ -2171,7 +2149,7 @@ ff_dpdk_if_send(struct ff_dpdk_if_context *ctx, void *m,
     }
 
     struct ff_tx_offload offload = {0};
-    ff_mbuf_tx_offload(m, &offload);
+    ff_mbuf_tx_offload(m_bsd, &offload);
 
     void *data = rte_pktmbuf_mtod(head, void*);
 
@@ -2238,8 +2216,9 @@ ff_dpdk_if_send(struct ff_dpdk_if_context *ctx, void *m,
             head->l3_len = iph_len;
         }
     }
-
+#ifndef FF_USE_PAGE_ARRAY
     ff_mbuf_free(m);
+#endif
 
     return send_single_packet(head, ctx->port_id);
 }

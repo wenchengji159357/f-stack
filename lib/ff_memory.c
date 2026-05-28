@@ -50,6 +50,7 @@
 #include <rte_ip.h>
 #include <rte_tcp.h>
 #include <rte_udp.h>
+#include <rte_vfio.h>
 
 #include "ff_dpdk_if.h"
 #include "ff_dpdk_pcap.h"
@@ -61,7 +62,7 @@
 #include "ff_api.h"
 #include "ff_memory.h"
 
-#define PAGE_SIZE            4096
+#define    PAGE_SIZE            4096
 #define    PAGE_SHIFT            12
 #define    PAGE_MASK            (PAGE_SIZE - 1)
 #define    trunc_page(x)        ((x) & ~PAGE_MASK)
@@ -70,25 +71,8 @@
 extern struct rte_mempool *pktmbuf_pool[NB_SOCKETS];
 extern struct lcore_conf lcore_conf;
 
-//struct ff_tx_offload;
-
-// ff_ref_pool allocate rte_mbuf without data space, which data point to bsd mbuf's data address.
-static struct rte_mempool *ff_ref_pool[NB_SOCKETS];
-
-#define    Head_INC(h)    {\
-    if ( ++h >= TX_QUEUE_SIZE ) \
-        h = 0;\
-    };
-
-#define    Head_DEC(h)    do{\
-    if ( --h < 0 ) \
-        h = TX_QUEUE_SIZE-1;\
-    }while(0);
-
-// bsd mbuf was moved into nic_tx_ring from tmp_tables, after rte_eth_tx_burst() succeed.
-static struct mbuf_txring nic_tx_ring[RTE_MAX_ETHPORTS];
-static inline int ff_txring_enqueue(struct mbuf_txring* q, void *p, int seg_num);
-static inline void ff_txring_init(struct mbuf_txring* r, uint32_t len);
+void *ff_mem_get_page();
+int ff_mem_free_addr(void *p);
 
 typedef struct _list_manager_s
 {
@@ -98,14 +82,14 @@ typedef struct _list_manager_s
     int     top;
 }StackList_t;
 
-static StackList_t         ff_mpage_ctl = {0};
-static uint64_t             ff_page_start = (uint64_t)NULL, ff_page_end = (uint64_t)NULL;
-static phys_addr_t        *ff_mpage_phy = NULL;
+static StackList_t ff_mpage_ctl = {0};
+static uint64_t ff_page_start = (uint64_t)NULL, ff_page_end = (uint64_t)NULL;
+static phys_addr_t *ff_mpage_phy = NULL;
 
-static inline void        *stklist_pop(StackList_t *p);
-static inline int         stklist_push(StackList_t * p, uint64_t val);
+static inline void *stklist_pop(StackList_t *p);
+static inline int stklist_push(StackList_t * p, uint64_t val);
 
-static int                 stklist_init(StackList_t*p, int size)
+static int stklist_init(StackList_t*p, int size)
 {
 
     int i = 0;
@@ -163,67 +147,6 @@ static inline int ff_mbuf_set_uint64(struct rte_mbuf* p, uint64_t data)
     return 0;
 }
 
-/*************************
-* if mbuf has num segment in all, Dev's sw_ring will use num descriptions. ff_txring also use num segments as below:
-* <---     num-1          ---->|ptr| head |
-* ----------------------------------------------
-* | 0 | 0 | ..............| 0  | p | XXX  |
-*-----------------------------------------------
-*************************/
-static inline int ff_txring_enqueue(struct mbuf_txring* q, void *p, int seg_num)
-{
-    int i = 0;
-    for ( i=0; i<seg_num-1; i++){
-        if ( q->m_table[q->head] ){
-            ff_mbuf_free(q->m_table[q->head]);
-            q->m_table[q->head] = NULL;
-        }
-        Head_INC(q->head);
-    }
-    if ( q->m_table[q->head] )
-        ff_mbuf_free(q->m_table[q->head]);
-    q->m_table[q->head] = p;
-    Head_INC(q->head);
-
-    return 0;
-}
-
-// pop out from head-1 .
-static inline int ff_txring_pop(struct mbuf_txring* q, int num)
-{
-    int i = 0;
-
-    for (i=0; i<num; i++){
-        Head_DEC(q->head);
-        if ( (i==0 && q->m_table[q->head]==NULL) || (i>0 && q->m_table[q->head]!=NULL) ){
-            rte_panic("ff_txring_pop fatal error!");
-        }
-        if ( q->m_table[q->head] != NULL ){
-            ff_mbuf_free(q->m_table[q->head]);
-            q->m_table[q->head] = NULL;
-        }
-    }
-}
-
-static inline void ff_txring_init(struct mbuf_txring* q, uint32_t num)
-{
-    memset(q, 0, sizeof(struct mbuf_txring)*num);
-}
-
-void ff_init_ref_pool(int nb_mbuf, int socketid)
-{
-    char s[64] = {0};
-
-    if (ff_ref_pool[socketid] != NULL) {
-            return;
-    }
-    snprintf(s, sizeof(s), "ff_ref_pool_%d", socketid);
-    if (rte_eal_process_type() == RTE_PROC_PRIMARY) {
-        ff_ref_pool[socketid] = rte_pktmbuf_pool_create(s, nb_mbuf, MEMPOOL_CACHE_SIZE, 0, 0, socketid);
-    } else {
-        ff_ref_pool[socketid] = rte_mempool_lookup(s);
-    }
-}
 
 int ff_mmap_init()
 {
@@ -261,14 +184,17 @@ int ff_mmap_init()
         memset((void*)virt_addr, 0, PAGE_SIZE);
 
         stklist_push( &ff_mpage_ctl, virt_addr);
-        ff_mpage_phy[i] = rte_mem_virt2phy((const void*)virt_addr);
+        ff_mpage_phy[i] = rte_mem_virt2iova((const void*)virt_addr);
         if ( ff_mpage_phy[i] == RTE_BAD_IOVA ){
             rte_panic("rte_mem_virt2phy return invalid address.");
             return -1;
         }
-    }
 
-    ff_txring_init(&nic_tx_ring[0], RTE_MAX_ETHPORTS);
+        if (rte_vfio_is_enabled("vfio_pci"))
+            if (rte_vfio_container_dma_map(RTE_VFIO_DEFAULT_CONTAINER_FD, virt_addr,ff_mpage_phy[i],PAGE_SIZE)<0)
+                return -1;
+
+    }
 
     return 0;
 }
@@ -302,7 +228,7 @@ void *ff_mem_get_page()
     return (void*)stklist_pop(&ff_mpage_ctl);
 }
 
-int    ff_mem_free_addr(void *p)
+int ff_mem_free_addr(void *p)
 {
     stklist_push(&ff_mpage_ctl, (const uint64_t)p);
     return 0;
@@ -375,107 +301,29 @@ static inline void ff_offload_set(struct ff_dpdk_if_context *ctx, void *m, struc
     }
 }
 
-// create rte_buf refer to data which is transmit from bsd stack by EXT_CLUSTER.
-static inline struct rte_mbuf*     ff_extcl_to_rte(void *m )
+static void extbuf_free_cb(void *addr, void *fcb_opaque)
 {
-    struct rte_mempool *mbuf_pool = pktmbuf_pool[lcore_conf.socket_id];
-    struct rte_mbuf *src_mbuf = NULL;
-    struct rte_mbuf *p_head = NULL;
-
-    src_mbuf = (struct rte_mbuf*)ff_rte_frm_extcl(m);
-    if ( NULL==src_mbuf ){
-        return NULL;
-    }
-    p_head = rte_pktmbuf_clone(src_mbuf, mbuf_pool);
-    if (p_head == NULL){
-        return NULL;
-    }
-
-    return p_head;
+    ff_mbuf_extbuf_free(fcb_opaque);
 }
 
 //  create rte_mbuf refer to data in bsd mbuf.
-static inline struct rte_mbuf*     ff_bsd_to_rte(void *m, int total)
+int ff_bsd_to_rte(void **m, struct rte_mbuf *cur)
 {
-    struct rte_mempool *mbuf_pool = ff_ref_pool[lcore_conf.socket_id];
-    struct rte_mbuf *p_head = NULL;
-    struct rte_mbuf *cur = NULL, *prev = NULL, *tmp=NULL;
-    void    *data = NULL;
-    void    *p_bsdbuf = NULL;
-    unsigned len = 0;
+    void *data = NULL;
+    int len = 0;
+    rte_iova_t buf_iova = 0;
 
-    p_head = rte_pktmbuf_alloc(mbuf_pool);
-    if (p_head == NULL){
-        return NULL;
-    }
-    p_head->pkt_len = total;
-    p_head->nb_segs = 0;
-    cur = p_head;
-    p_bsdbuf = m;
-    while ( p_bsdbuf ){
-        if (cur == NULL) {
-            cur = rte_pktmbuf_alloc(mbuf_pool);
-            if (cur == NULL) {
-                rte_pktmbuf_free(p_head);
-                return NULL;
-            }
-        }
-        ff_next_mbuf(&p_bsdbuf, &data, &len);        // p_bsdbuf move to next mbuf.
-        cur->buf_addr = data;
-        cur->buf_iova = ff_mem_virt2phy((const void*)(cur->buf_addr));
-        cur->data_off = 0;
-        cur->data_len = len;
+    struct rte_mbuf_ext_shared_info *shinfo = (struct rte_mbuf_ext_shared_info *)(cur+1);
+    shinfo->free_cb = extbuf_free_cb;
+    shinfo->fcb_opaque = *m;
 
-        p_head->nb_segs++;
-        if (prev != NULL) {
-            prev->next = cur;
-        }
-        prev = cur;
-        cur = NULL;
-    }
+    ff_next_mbuf(m, &data, &len); // p_bsdbuf move to next mbuf.
 
-    return p_head;
-}
+    buf_iova = ff_mem_virt2phy(data);
 
-int ff_if_send_onepkt(struct ff_dpdk_if_context *ctx, void *m, int total)
-{
-    struct rte_mbuf *head = NULL;
-    void            *src_buf = NULL;
-    void            *p_data = NULL;
-    struct lcore_conf *qconf = NULL;
-    unsigned        len = 0;
-
-    if ( !m ){
-        rte_log(RTE_LOG_CRIT, RTE_LOGTYPE_USER1, "ff_dpdk_if_send_ex input invalid NULL address.");
-        return 0;
-    }
-    p_data = ff_mbuf_mtod(m);
-    if ( ff_chk_vma((uint64_t)p_data)){
-        head = ff_bsd_to_rte(m, total);
-    }
-    else if ( (head = ff_extcl_to_rte(m)) == NULL ){
-           rte_panic("data address 0x%lx is out of page bound or not malloced by DPDK recver.", (uint64_t)p_data);
-        return 0;
-    }
-
-    if (head == NULL){
-        rte_log(RTE_LOG_CRIT, RTE_LOGTYPE_USER1, "ff_if_send_onepkt call ff_bsd_to_rte failed.");
-        ff_mbuf_free(m);
-        return 0;
-    }
-
-    ff_offload_set(ctx, m, head);
-    qconf = &lcore_conf;
-    len = qconf->tx_mbufs[ctx->port_id].len;
-    qconf->tx_mbufs[ctx->port_id].m_table[len] = head;
-    qconf->tx_mbufs[ctx->port_id].bsd_m_table[len] = m;
-    len++;
-
+    rte_mbuf_ext_refcnt_set(shinfo, 1);
+    rte_pktmbuf_attach_extbuf(cur,data,buf_iova,len,shinfo);
     return len;
 }
 
-int ff_enq_tx_bsdmbuf(uint8_t portid, void *p_mbuf, int nb_segs)
-{
-    return ff_txring_enqueue(&nic_tx_ring[portid], p_mbuf, nb_segs);
-}
 
