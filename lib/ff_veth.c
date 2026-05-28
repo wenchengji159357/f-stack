@@ -298,6 +298,12 @@ ff_mbuf_free(void *m)
     m_freem((struct mbuf *)m);
 }
 
+void
+ff_mbuf_extbuf_free(void *m)
+{
+    m_free((struct mbuf *)m);
+}
+
 static void
 ff_mbuf_ext_free(struct mbuf *m)
 {
@@ -1082,7 +1088,7 @@ ff_veth_free_softc(void *softc)
 *  get next mbuf's addr, current mbuf's data and datalen.
 *
 ********************/
-int ff_next_mbuf(void **mbuf_bsd, void **data, unsigned *len)
+int ff_next_mbuf(void **mbuf_bsd, void **data, int *len)
 {
     struct mbuf *mb = *(struct mbuf **)mbuf_bsd;
 

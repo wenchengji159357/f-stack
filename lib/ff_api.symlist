@@ -86,5 +86,7 @@ ff_log_close
 ff_vm_phys_early_add_seg
 ff_open
 ff_lseek
+ff_access
 ff_fstat
 ff_sendfile
+ff_mbuf_extbuf_free

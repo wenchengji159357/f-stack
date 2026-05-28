@@ -35,9 +35,10 @@ void *ff_mbuf_gethdr(void *pkt, uint16_t total, void *data,
     uint16_t len, uint8_t rx_csum);
 void *ff_mbuf_get(void *p, void *m, void *data, uint16_t len);
 void ff_mbuf_free(void *m);
+void ff_mbuf_extbuf_free(void *m);
 
 int ff_mbuf_copydata(void *m, void *data, int off, int len);
-int ff_next_mbuf(void **mbuf_bsd, void **data, unsigned *len);
+int ff_next_mbuf(void **mbuf_bsd, void **data, int *len);
 void* ff_mbuf_mtod(void* bsd_mbuf);
 void* ff_rte_frm_extcl(void* mbuf);
 
