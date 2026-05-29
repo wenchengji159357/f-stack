@@ -215,7 +215,7 @@ static inline uint64_t ff_mem_virt2phy(const void* virtaddr)
 
     pages = (((uint64_t)virtaddr - (uint64_t)ff_page_start)>>PAGE_SHIFT);
     if (pages >= (uint32_t)stklist_size(&ff_mpage_ctl)) {
-        return rte_mem_virt2iova((const void*)virt_addr);
+        return rte_mem_virt2iova((const void*)virtaddr);
     }
 
     addr = ff_mpage_phy[pages] + ((const uint64_t)virtaddr & PAGE_MASK);
